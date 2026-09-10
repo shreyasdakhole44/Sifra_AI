@@ -1,0 +1,17 @@
+column,q1,q3,lower_bound,upper_bound,outlier_count,outlier_percent
+total_dafw_days,0.0,18.0,-27.0,45.0,40347,18.77
+total_djtr_days,0.0,40.0,-60.0,100.0,34473,16.04
+total_djtr_cases,0.0,1.0,-1.5,2.5,30858,14.35
+total_dafw_cases,0.0,1.0,-1.5,2.5,30078,13.99
+total_hours_worked,37518.25,219572.0,-235562.375,492652.625,22700,10.56
+annual_average_employees,23.0,128.0,-134.5,285.5,21248,9.88
+total_injuries,0.0,4.0,-6.0,10.0,20726,9.64
+total_other_cases,0.0,2.0,-3.0,5.0,15397,7.16
+no_injuries_illnesses,1.0,2.0,-0.5,3.5,0,0.0
+total_deaths,0.0,0.0,0.0,0.0,0,0.0
+total_poisonings,0.0,0.0,0.0,0.0,0,0.0
+total_respiratory_conditions,0.0,0.0,0.0,0.0,0,0.0
+total_skin_disorders,0.0,0.0,0.0,0.0,0,0.0
+total_hearing_loss,0.0,0.0,0.0,0.0,0,0.0
+total_other_illnesses,0.0,0.0,0.0,0.0,0,0.0
+year_filing_for,2016.0,2016.0,2016.0,2016.0,0,0.0

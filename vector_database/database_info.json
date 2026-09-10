@@ -1,0 +1,6 @@
+{
+    "embedding_model": "all-MiniLM-L6-v2",
+    "total_documents": 5,
+    "total_chunks": 15,
+    "embedding_dimension": 384
+}

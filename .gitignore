@@ -1,13 +1,22 @@
 # Environment variables / API keys
 .env
+.env.local
 
-# Python cache
+# Python cache & virtual environments
 __pycache__/
 *.pyc
-
-# Virtual environment
 venv/
 .venv/
 
-# Large/generated files (optional)
+# Frontend dependencies & build artifacts
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+
+# Temporary test scripts
+backend/test_*.py
+
+# OS metadata & logs
 *.log
+.DS_Store
+Thumbs.db

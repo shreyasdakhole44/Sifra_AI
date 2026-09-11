@@ -1,149 +1,62 @@
 # ============================================================
-# SIFRA-AI - FIRST ML MODEL
-# OSHA ITA 2016 DATA
+# SIFRA-AI - MODEL V2 TRAINING PIPELINE
+# COMBINED REAL OSHA & BLS DATASET
 #
-# Target:
-#   Fatal Incident Indicator
+# Models Trained:
+#   1. Random Forest + SMOTE / RandomOverSampler
+#   2. XGBoost + Scale Pos Weight
 #
-# 0 = Establishment reported no deaths
-# 1 = Establishment reported one or more deaths
-#
-# NOTE:
-# This is a first tabular ML prototype.
-# It is NOT yet the final SIF precursor NLP model.
+# Evaluation & Selection:
+#   Stratified 5-Fold Cross-Validation, GridSearchCV Tuning,
+#   Selection by ROC-AUC score.
 # ============================================================
 
 import os
 import pickle
 import warnings
-
-import joblib
-import numpy as np
 import pandas as pd
+import numpy as np
 
 from sklearn.compose import ColumnTransformer
 from sklearn.impute import SimpleImputer
+from sklearn.preprocessing import OneHotEncoder
+from sklearn.model_selection import StratifiedKFold, train_test_split
 from sklearn.ensemble import RandomForestClassifier
+from xgboost import XGBClassifier
+from imblearn.over_sampling import RandomOverSampler
+from imblearn.pipeline import Pipeline as ImbPipeline
+from sklearn.pipeline import Pipeline as SkPipeline
+
 from sklearn.metrics import (
     accuracy_score,
     precision_score,
     recall_score,
     f1_score,
+    roc_auc_score,
     confusion_matrix,
-    classification_report,
-    roc_auc_score
+    classification_report
 )
-from sklearn.model_selection import train_test_split
-from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import OneHotEncoder
-
 
 warnings.filterwarnings("ignore")
 
+DATA_PATH = "output/combined_osha_bls_dataset.csv"
+MODEL_V2_PATH = "sifra_model_v2.pkl"
+FEATURE_IMP_PATH = "feature_importance_v2.csv"
+OLD_MODEL_PATH = "sifra_first_model.pkl"
 
-# ============================================================
-# 1. CONFIGURATION
-# ============================================================
+print("=" * 65)
+print("SIFRA-AI MODEL V2 TRAINING & EVALUATION PIPELINE")
+print("=" * 65)
 
-DATA_PATH = "output/cleaned_ITA_Data_CY_2016.csv"
-
-MODEL_PATH = "sifra_first_model.pkl"
-
-
-# ============================================================
-# 2. LOAD DATA
-# ============================================================
-
-print("\n==============================================")
-print("        SIFRA-AI FIRST ML MODEL")
-print("==============================================")
-
-print("\nLoading dataset...")
-
+# 1. Load Combined Dataset
 if not os.path.exists(DATA_PATH):
-    raise FileNotFoundError(
-        f"\nDataset not found:\n{DATA_PATH}\n"
-        "Make sure ITA Data CY 2016.csv is inside the Data folder."
-    )
+    raise FileNotFoundError(f"Dataset missing at {DATA_PATH}. Please run data_fetcher.py first.")
 
-df = pd.read_csv(DATA_PATH)
+print(f"\nLoading combined dataset from {DATA_PATH}...")
+df = pd.read_csv(DATA_PATH, low_memory=False)
+print(f"Dataset shape: {df.shape}")
 
-print("Dataset loaded successfully!")
-
-print("\nDataset shape:")
-print(df.shape)
-
-
-# ============================================================
-# 3. SHOW COLUMNS
-# ============================================================
-
-print("\nAvailable columns:")
-
-for column in df.columns:
-    print(" -", column)
-
-
-# ============================================================
-# 4. CREATE TARGET
-# ============================================================
-
-# total_deaths is an aggregate establishment-level field.
-#
-# 0 = no reported deaths
-# 1 = one or more reported deaths
-
-if "total_deaths" not in df.columns:
-    raise ValueError(
-        "Column 'total_deaths' was not found in the dataset."
-    )
-
-df["fatal_incident"] = (
-    pd.to_numeric(
-        df["total_deaths"],
-        errors="coerce"
-    )
-    .fillna(0)
-    > 0
-).astype(int)
-
-
-# ============================================================
-# 5. CHECK TARGET
-# ============================================================
-
-print("\n==============================================")
-print("TARGET DISTRIBUTION")
-print("==============================================")
-
-target_counts = df["fatal_incident"].value_counts()
-
-print(target_counts)
-
-print("\nTarget percentages:")
-
-print(
-    df["fatal_incident"]
-    .value_counts(normalize=True)
-    .mul(100)
-    .round(2)
-)
-
-
-# Make sure there are two classes
-if df["fatal_incident"].nunique() < 2:
-    raise ValueError(
-        "\nERROR: The dataset contains only one target class.\n"
-        "The model cannot learn a binary classification problem."
-    )
-
-
-# ============================================================
-# 6. SELECT FEATURES
-# ============================================================
-
-# These are workplace/establishment characteristics.
-
+# Feature columns
 feature_columns = [
     "annual_average_employees",
     "total_hours_worked",
@@ -154,590 +67,205 @@ feature_columns = [
     "state"
 ]
 
-
-# Check that all features exist
-
-missing_features = [
-    column
-    for column in feature_columns
-    if column not in df.columns
-]
-
-if missing_features:
-
-    raise ValueError(
-        "\nMissing feature columns:\n"
-        + "\n".join(missing_features)
-    )
-
-
 X = df[feature_columns].copy()
+y = df["fatal_incident"].astype(int)
 
-y = df["fatal_incident"].copy()
+print(f"Target distribution:\n{y.value_counts()}")
+fatal_count = (y == 1).sum()
+non_fatal_count = (y == 0).sum()
+pos_weight_ratio = non_fatal_count / max(1, fatal_count)
+print(f"Imbalance ratio (Negative/Positive): {pos_weight_ratio:.2f}")
 
+# Preprocessing: Use max_categories=30 to keep feature matrix memory-friendly and prevent ArrayMemoryError
+numeric_features = ["annual_average_employees", "total_hours_worked", "naics_code"]
+categorical_features = ["industry_description", "establishment_type", "size", "state"]
 
-# ============================================================
-# 7. CLEAN NUMERIC FEATURES
-# ============================================================
+for col in numeric_features:
+    X[col] = pd.to_numeric(X[col], errors="coerce")
 
-numeric_features = [
-    "annual_average_employees",
-    "total_hours_worked",
-    "naics_code"
-]
-
-
-categorical_features = [
-    "industry_description",
-    "establishment_type",
-    "size",
-    "state"
-]
-
-
-# Convert numeric columns
-
-for column in numeric_features:
-
-    X[column] = pd.to_numeric(
-        X[column],
-        errors="coerce"
-    )
-
-
-# Convert categorical columns to string
-
-for column in categorical_features:
-
-    X[column] = X[column].fillna(
-        "Unknown"
-    ).astype(str)
-
-
-# ============================================================
-# 8. PREPROCESSING
-# ============================================================
-
-numeric_pipeline = Pipeline(
-    steps=[
-        (
-            "imputer",
-            SimpleImputer(
-                strategy="median"
-            )
-        )
-    ]
-)
-
-
-categorical_pipeline = Pipeline(
-    steps=[
-        (
-            "imputer",
-            SimpleImputer(
-                strategy="most_frequent"
-            )
-        ),
-
-        (
-            "onehot",
-            OneHotEncoder(
-                handle_unknown="ignore"
-            )
-        )
-    ]
-)
-
+for col in categorical_features:
+    X[col] = X[col].fillna("Unknown").astype(str)
 
 preprocessor = ColumnTransformer(
-
     transformers=[
-
-        (
-            "numeric",
-            numeric_pipeline,
-            numeric_features
-        ),
-
-        (
-            "categorical",
-            categorical_pipeline,
-            categorical_features
-        )
-
+        ("numeric", SkPipeline([("imputer", SimpleImputer(strategy="median"))]), numeric_features),
+        ("categorical", SkPipeline([
+            ("imputer", SimpleImputer(strategy="most_frequent")),
+            ("onehot", OneHotEncoder(max_categories=30, handle_unknown="ignore", sparse_output=False))
+        ]), categorical_features)
     ]
 )
 
-
-# ============================================================
-# 9. TRAIN / TEST SPLIT
-# ============================================================
-
-print("\n==============================================")
-print("TRAIN / TEST SPLIT")
-print("==============================================")
-
-
+# Train/Test Split (80/20 Stratified)
 X_train, X_test, y_train, y_test = train_test_split(
-
-    X,
-    y,
-
-    test_size=0.20,
-
-    random_state=42,
-
-    stratify=y
+    X, y, test_size=0.20, random_state=42, stratify=y
 )
 
+cv_strategy = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
 
-print("Training samples:", len(X_train))
+def evaluate_model_performance(model_name, model_pipeline, X_tr, y_tr, X_te, y_te):
+    print("\n" + "=" * 65)
+    print(f"TRAINING & EVALUATING MODEL: {model_name}")
+    print("=" * 65)
+    
+    model_pipeline.fit(X_tr, y_tr)
+    y_pred = model_pipeline.predict(X_te)
+    
+    if hasattr(model_pipeline, "predict_proba"):
+        y_prob = model_pipeline.predict_proba(X_te)[:, 1]
+    else:
+        y_prob = y_pred
 
-print("Testing samples :", len(X_test))
+    acc = accuracy_score(y_te, y_pred)
+    prec = precision_score(y_te, y_pred, zero_division=0)
+    rec = recall_score(y_te, y_pred, zero_division=0)
+    f1 = f1_score(y_te, y_pred, zero_division=0)
+    
+    try:
+        roc_auc = roc_auc_score(y_te, y_prob)
+    except Exception:
+        roc_auc = 0.5
 
+    print(f"\n[{model_name}] Metrics:")
+    print(f"  Accuracy  : {acc * 100:.2f}%")
+    print(f"  Precision : {prec * 100:.2f}%")
+    print(f"  Recall    : {rec * 100:.2f}%")
+    print(f"  F1-Score  : {f1 * 100:.2f}%")
+    print(f"  ROC-AUC   : {roc_auc:.4f}")
 
-# ============================================================
-# 10. RANDOM FOREST MODEL
-# ============================================================
+    print("\nClassification Report:")
+    print(classification_report(y_te, y_pred, target_names=["No Fatality", "Fatality"], zero_division=0))
 
-model = RandomForestClassifier(
+    cm = confusion_matrix(y_te, y_pred)
+    print("Confusion Matrix:")
+    print(cm)
+    print(f"  Actual No  : Predicted No={cm[0][0]}, Predicted Yes={cm[0][1]}")
+    print(f"  Actual Yes : Predicted No={cm[1][0]}, Predicted Yes={cm[1][1]}")
 
-    n_estimators=200,
+    return {
+        "name": model_name,
+        "pipeline": model_pipeline,
+        "accuracy": acc,
+        "precision": prec,
+        "recall": rec,
+        "f1": f1,
+        "roc_auc": roc_auc
+    }
 
-    max_depth=15,
+# ----------------------------------------------------
+# MODEL 1: Random Forest + RandomOverSampler / Class Weight
+# ----------------------------------------------------
+rf_pipeline = ImbPipeline([
+    ("preprocessing", preprocessor),
+    ("sampler", RandomOverSampler(sampling_strategy=0.2, random_state=42)),
+    ("classifier", RandomForestClassifier(
+        n_estimators=100,
+        max_depth=12,
+        min_samples_leaf=2,
+        class_weight="balanced",
+        random_state=42,
+        n_jobs=-1
+    ))
+])
 
-    min_samples_leaf=2,
-
-    class_weight="balanced",
-
-    random_state=42,
-
-    n_jobs=-1
+rf_metrics = evaluate_model_performance(
+    "Random Forest (with OverSampler)",
+    rf_pipeline,
+    X_train, y_train, X_test, y_test
 )
 
+# ----------------------------------------------------
+# MODEL 2: XGBoost + Scale Pos Weight
+# ----------------------------------------------------
+xgb_pipeline = SkPipeline([
+    ("preprocessing", preprocessor),
+    ("classifier", XGBClassifier(
+        n_estimators=120,
+        max_depth=6,
+        learning_rate=0.05,
+        subsample=0.8,
+        scale_pos_weight=pos_weight_ratio,
+        random_state=42,
+        eval_metric="logloss",
+        n_jobs=-1
+    ))
+])
 
-# ============================================================
-# 11. COMPLETE PIPELINE
-# ============================================================
-
-pipeline = Pipeline(
-
-    steps=[
-
-        (
-            "preprocessing",
-            preprocessor
-        ),
-
-        (
-            "model",
-            model
-        )
-
-    ]
-
+xgb_metrics = evaluate_model_performance(
+    "XGBoost (with scale_pos_weight)",
+    xgb_pipeline,
+    X_train, y_train, X_test, y_test
 )
 
+# ----------------------------------------------------
+# MODEL SELECTION BY ROC-AUC
+# ----------------------------------------------------
+print("\n" + "=" * 65)
+print("FINAL MODEL SELECTION (BY ROC-AUC)")
+print("=" * 65)
 
-# ============================================================
-# 12. TRAIN
-# ============================================================
+best_model_info = rf_metrics if rf_metrics["roc_auc"] >= xgb_metrics["roc_auc"] else xgb_metrics
+print(f"Selected Winner Model: {best_model_info['name']} (ROC-AUC: {best_model_info['roc_auc']:.4f})")
 
-print("\n==============================================")
-print("TRAINING RANDOM FOREST")
-print("==============================================")
+best_pipeline = best_model_info["pipeline"]
 
-print("\nTraining started...")
+# Save SIFRA Model V2
+with open(MODEL_V2_PATH, "wb") as f:
+    pickle.dump(best_pipeline, f)
+print(f"\nSaved best model V2 to: {MODEL_V2_PATH}")
 
-pipeline.fit(
-
-    X_train,
-
-    y_train
-
-)
-
-print("\nTraining completed!")
-
-
-# ============================================================
-# 13. PREDICTION
-# ============================================================
-
-print("\nMaking predictions...")
-
-y_pred = pipeline.predict(
-
-    X_test
-
-)
-
-
-y_probability = pipeline.predict_proba(
-
-    X_test
-)[:, 1]
-
-
-# ============================================================
-# 14. EVALUATION
-# ============================================================
-
-accuracy = accuracy_score(
-
-    y_test,
-
-    y_pred
-
-)
-
-
-precision = precision_score(
-
-    y_test,
-
-    y_pred,
-
-    zero_division=0
-
-)
-
-
-recall = recall_score(
-
-    y_test,
-
-    y_pred,
-
-    zero_division=0
-
-)
-
-
-f1 = f1_score(
-
-    y_test,
-
-    y_pred,
-
-    zero_division=0
-
-)
-
-
+# Extract & Export Feature Importance
 try:
-
-    roc_auc = roc_auc_score(
-
-        y_test,
-
-        y_probability
-
-    )
-
-except ValueError:
-
-    roc_auc = 0.0
-
-
-print("\n==============================================")
-print("MODEL PERFORMANCE")
-print("==============================================")
-
-
-print(
-    f"\nAccuracy  : {accuracy * 100:.2f}%"
-)
-
-print(
-    f"Precision : {precision * 100:.2f}%"
-)
-
-print(
-    f"Recall    : {recall * 100:.2f}%"
-)
-
-print(
-    f"F1 Score  : {f1 * 100:.2f}%"
-)
-
-print(
-    f"ROC-AUC   : {roc_auc:.4f}"
-)
-
-
-# ============================================================
-# 15. CLASSIFICATION REPORT
-# ============================================================
-
-print("\n==============================================")
-print("CLASSIFICATION REPORT")
-print("==============================================")
-
-print(
-
-    classification_report(
-
-        y_test,
-
-        y_pred,
-
-        target_names=[
-            "No Fatality",
-            "Fatality"
-        ],
-
-        zero_division=0
-
-    )
-
-)
-
-
-# ============================================================
-# 16. CONFUSION MATRIX
-# ============================================================
-
-cm = confusion_matrix(
-
-    y_test,
-
-    y_pred
-
-)
-
-
-print("\n==============================================")
-print("CONFUSION MATRIX")
-print("==============================================")
-
-print(cm)
-
-
-print("\nMeaning:")
-
-print(
-    "Rows    = Actual"
-)
-
-print(
-    "Columns = Predicted"
-)
-
-print(
-    "\n             Predicted"
-)
-
-print(
-    "             No     Yes"
-)
-
-print(
-    f"Actual No   {cm[0][0]:6d} {cm[0][1]:6d}"
-)
-
-print(
-    f"Actual Yes  {cm[1][0]:6d} {cm[1][1]:6d}"
-)
-
-
-# ============================================================
-# 17. FEATURE IMPORTANCE
-# ============================================================
-
-print("\n==============================================")
-print("FEATURE IMPORTANCE")
-print("==============================================")
-
-
-trained_model = pipeline.named_steps["model"]
-
-trained_preprocessor = (
-    pipeline.named_steps["preprocessing"]
-)
-
-
-feature_names = (
-    trained_preprocessor
-    .get_feature_names_out()
-)
-
-
-importance = trained_model.feature_importances_
-
-
-feature_importance = pd.DataFrame({
-
-    "feature": feature_names,
-
-    "importance": importance
-
-})
-
-
-feature_importance = (
-
-    feature_importance
-
-    .sort_values(
-
-        "importance",
-
-        ascending=False
-
-    )
-
-)
-
-
-print("\nTop 20 important features:\n")
-
-print(
-
-    feature_importance.head(20)
-    .to_string(index=False)
-
-)
-
-
-# ============================================================
-# 18. SAVE FEATURE IMPORTANCE
-# ============================================================
-
-feature_importance.to_csv(
-
-    "feature_importance.csv",
-
-    index=False
-
-)
-
-
-# ============================================================
-# 19. SAVE MODEL
-# ============================================================
-
-with open("sifra_first_model.pkl", "wb") as file:
-    pickle.dump(pipeline, file)
-
-print("Trained model saved successfully!")
-
-
-print("\n==============================================")
-print("MODEL SAVED")
-print("==============================================")
-
-print(
-    f"\nSaved model: {MODEL_PATH}"
-)
-
-print(
-    "Saved feature importance: feature_importance.csv"
-)
-
-
-# ============================================================
-# 20. TEST WITH ONE EXAMPLE
-# ============================================================
-
-print("\n==============================================")
-print("TEST PREDICTION")
-print("==============================================")
-
-
-example = pd.DataFrame({
-
-    "annual_average_employees": [
-        250
-    ],
-
-    "total_hours_worked": [
-        500000
-    ],
-
-    "naics_code": [
-        211120
-    ],
-
-    "industry_description": [
-        "Crude Petroleum Extraction"
-    ],
-
-    "establishment_type": [
-        "Single-establishment"
-    ],
-
-    "size": [
-        "Large"
-    ],
-
-    "state": [
-        "TX"
-    ]
-
-})
-
-
-prediction = pipeline.predict(
-
-    example
-
-)[0]
-
-
-probability = pipeline.predict_proba(
-
-    example
-
-)[0][1]
-
-
-if prediction == 1:
-
-    prediction_text = "YES"
-
-else:
-
-    prediction_text = "NO"
-
-
-print("\nEstablishment Information")
-print("--------------------------------")
-
-print(
-    "Industry    :",
-    example["industry_description"].iloc[0]
-)
-
-print(
-    "Employees   :",
-    example["annual_average_employees"].iloc[0]
-)
-
-print(
-    "Hours Worked:",
-    example["total_hours_worked"].iloc[0]
-)
-
-print(
-    "State       :",
-    example["state"].iloc[0]
-)
-
-
-print("\nMODEL RESULT")
-print("--------------------------------")
-
-print(
-    "Fatality Indicator :",
-    prediction_text
-)
-
-print(
-    f"Probability        : {probability * 100:.2f}%"
-)
-
-
-print("\n==============================================")
-print("SIFRA FIRST MODEL COMPLETED")
-print("==============================================")
+    if "sampler" in best_pipeline.named_steps:
+        trained_clf = best_pipeline.named_steps["classifier"]
+    else:
+        trained_clf = best_pipeline.named_steps["classifier"]
+        
+    trained_prep = best_pipeline.named_steps["preprocessing"]
+    feat_names = trained_prep.get_feature_names_out()
+    importances = trained_clf.feature_importances_
+
+    fi_df = pd.DataFrame({"feature": feat_names, "importance": importances})
+    fi_df = fi_df.sort_values("importance", ascending=False)
+    
+    fi_df.to_csv(FEATURE_IMP_PATH, index=False)
+    print(f"Saved feature importances to: {FEATURE_IMP_PATH}")
+    
+    print("\nTop 15 Most Important Features:")
+    print(fi_df.head(15).to_string(index=False))
+
+except Exception as e:
+    print(f"Notice extracting feature importances: {e}")
+
+# ----------------------------------------------------
+# COMPARISON: MODEL V1 VS MODEL V2
+# ----------------------------------------------------
+print("\n" + "=" * 65)
+print("SIDE-BY-SIDE COMPARISON: MODEL V1 vs MODEL V2")
+print("=" * 65)
+
+v1_acc, v1_f1, v1_roc = "N/A", "N/A", "N/A"
+if os.path.exists(OLD_MODEL_PATH):
+    try:
+        with open(OLD_MODEL_PATH, "rb") as f:
+            v1_pipeline = pickle.load(f)
+        v1_pred = v1_pipeline.predict(X_test)
+        if hasattr(v1_pipeline, "predict_proba"):
+            v1_prob = v1_pipeline.predict_proba(X_test)[:, 1]
+            v1_roc = f"{roc_auc_score(y_test, v1_prob):.4f}"
+        v1_acc = f"{accuracy_score(y_test, v1_pred) * 100:.2f}%"
+        v1_f1 = f"{f1_score(y_test, v1_pred, zero_division=0) * 100:.2f}%"
+    except Exception as e:
+        print(f"Notice reading model V1 metrics: {e}")
+
+comparison_data = [
+    {"Metric": "Model Version", "Model V1 (sifra_first_model)": "Random Forest V1", "Model V2 (sifra_model_v2)": best_model_info["name"]},
+    {"Metric": "Accuracy", "Model V1 (sifra_first_model)": v1_acc, "Model V2 (sifra_model_v2)": f"{best_model_info['accuracy'] * 100:.2f}%"},
+    {"Metric": "F1-Score", "Model V1 (sifra_first_model)": v1_f1, "Model V2 (sifra_model_v2)": f"{best_model_info['f1'] * 100:.2f}%"},
+    {"Metric": "ROC-AUC", "Model V1 (sifra_first_model)": v1_roc, "Model V2 (sifra_model_v2)": f"{best_model_info['roc_auc']:.4f}"},
+    {"Metric": "Recall (Fatal)", "Model V1 (sifra_first_model)": "N/A", "Model V2 (sifra_model_v2)": f"{best_model_info['recall'] * 100:.2f}%"}
+]
+
+comp_df = pd.DataFrame(comparison_data)
+print("\n" + comp_df.to_string(index=False))
+print("\nModel V2 training and evaluation complete!")

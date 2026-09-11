@@ -1,580 +1,114 @@
-# 🛡️ SIFRA-AI
+# SIFRA AI — Industrial Safety Incident Analysis Platform
+**Oil India Limited (OIL)**
 
-## Safety Intelligence Framework for Risk Analysis using Artificial Intelligence
-
-SIFRA-AI is an AI-based industrial safety analysis system that combines:
-
-- 🤖 Machine Learning
-- 📚 RAG (Retrieval-Augmented Generation)
-- 🔍 FAISS Vector Database
-- 🧠 Large Language Model (LLM)
-- 📄 Safety PDF Knowledge Base
-
-The system analyzes an incident description, retrieves relevant safety information, generates an ML-based risk estimate, and provides an AI-generated safety analysis.
+SIFRA AI is an end-to-end industrial safety incident analysis platform built for Oil India Limited (OIL). It integrates a trained Random Forest fatality-risk classifier (`sifra_first_model.pkl`), a FAISS vector database over safety manuals (`vector_database/`), and Groq LLM synthesis to perform automated SIF (Serious Injury or Fatality) risk prediction, 7-section structured analysis, auto MCQ quiz generation, and real-time HSE alerting.
 
 ---
 
-# 🚀 Project Architecture
+## Key Features
 
-```text
-                    USER
-                      │
-                      ▼
-              Incident Description
-                      │
-                      ▼
-              ┌──────────────┐
-              │   SIFRA-AI   │
-              └──────────────┘
-                 │        │
-                 │        │
-                 ▼        ▼
-           ML MODEL       RAG
-          Random Forest   FAISS
-                 │        │
-                 │        │
-                 ▼        ▼
-          Risk Estimate   PDF Knowledge
-                 │        │
-                 └────┬───┘
-                      │
-                      ▼
-                  GROQ LLM
-                      │
-                      ▼
-            FINAL SAFETY ANALYSIS
-```
+1. **Worker Safety Portal**:
+   - Incident report submission with **Voice-to-Text** support (Web Speech API).
+   - Instant SIF Fatality Risk Score (ML model) and structured 7-section AI breakdown (Incident Summary, ML Risk Estimate, UA/UC Analysis, Relevant Hazards, Critical Barriers, Knowledge Base Observations, Limitations).
+   - **Auto MCQ Quiz Generator**: Dynamically generates 3-5 multiple-choice questions from the retrieved RAG context using Groq LLM.
+   - Training History & Scores tracking.
+   - Dispatched Alerts Inbox.
+
+2. **Admin & HSE Officer Dashboard**:
+   - **Real-Time Geo-Risk Heatmap**: Interactive map visualizing Oil India Limited operational sites (Duliajan HQ, Digboi Refinery, Moran Production, Jorhat Complex, Guwahati Station) with dynamic risk level pins.
+   - **Recharts Analytics**: Trend over time, risk comparison by site (Bar chart), and UA/UC rule violation breakdown (Donut chart).
+   - **Worker Safety Register**: Tracks individual incident count, average risk probability, and safety compliance ratings.
+   - **Moderation Queue**: Review flagged incidents and update status (`Pending Review` → `Under Investigation` → `Action Required` → `Resolved`).
+
+3. **Notification System**:
+   - Automated Twilio SMS and SendGrid email dispatches triggered when an incident is flagged as **HIGH** risk (&gt;50% SIF probability).
 
 ---
 
-# 📁 Project Structure
+## Tech Stack
 
-```text
-SIFRA-AI/
-│
-├── Data/
-│   └── safety_documents/
-│       ├── safety_document_1.pdf
-│       └── safety_document_2.pdf
-│
-├── vector_database/
-│   ├── sifra_faiss.index
-│   ├── chunks.pkl
-│   └── database_info.json
-│
-├── sifra_first_model.pkl
-│
-├── create_vector_db.py
-│
-├── sifra_final_ai.py
-│
-├── test_groq.py
-│
-├── check_model.py
-│
-├── requirements.txt
-│
-├── .env
-│
-├── .gitignore
-│
-└── README.md
-```
+- **Backend**: Python 3.10+, FastAPI, PyYAML, Pydantic, PyJWT, Passlib (Bcrypt)
+- **ML & RAG**: Random Forest Classifier (`scikit-learn`), `faiss-cpu`, `sentence-transformers` (`all-MiniLM-L6-v2`), Groq LLM API (`llama-3.3-70b-versatile`)
+- **Frontend**: Next.js 14 (App Router), React, TypeScript, Tailwind CSS, Recharts, Lucide Icons
+- **Database**: MongoDB (Motor async driver with fallback in-memory datastore)
+- **Auth**: JWT-based Authentication with Role-Based Access Control (`Admin`, `HSE Officer`, `Worker`)
 
 ---
 
-# 🧠 Technologies Used
+## Quick Start & Installation Guide
 
-| Technology | Purpose |
-|---|---|
-| Python | Main programming language |
-| Scikit-learn | Machine Learning model |
-| Random Forest | Risk prediction |
-| Pandas | Data processing |
-| FAISS | Vector database |
-| Sentence Transformers | Text embeddings |
-| RAG | Retrieve relevant safety information |
-| Groq API | Large Language Model |
-| GPT-OSS | AI-generated explanation |
-| PyPDF | Extract text from PDF files |
+### Prerequisites
+- Python 3.10+
+- Node.js v18+ & `npm`
+- MongoDB (optional, in-memory store acts as local fallback if URI is omitted)
 
----
+### 1. Environment Setup
 
-# 🤖 Machine Learning Model
-
-The project uses a **Random Forest Classifier**.
-
-The ML pipeline includes:
-
-```text
-Input Data
-    ↓
-Data Preprocessing
-    ↓
-Missing Value Handling
-    ↓
-Categorical Encoding
-    ↓
-Random Forest Model
-    ↓
-Risk Prediction
-```
-
-## Input Features
-
-The ML model uses the following features:
-
-### Numerical Features
-
-- Annual Average Employees
-- Total Hours Worked
-- NAICS Code
-
-### Categorical Features
-
-- Industry Description
-- Establishment Type
-- Establishment Size
-- State
-
----
-
-# 📊 ML Output
-
-The model generates:
-
-```text
-Fatality Indicator
-
-YES / NO
-```
-
-and:
-
-```text
-Fatality Probability
-
-Example: 52.31%
-```
-
-⚠️ The probability is a **machine learning model estimate based on training data**. It is not a guarantee that a real-world incident will occur.
-
----
-
-# 📚 RAG Pipeline
-
-The RAG system works as follows:
-
-```text
-Safety PDF Files
-       ↓
-Text Extraction
-       ↓
-Chunking
-       ↓
-Text Embeddings
-       ↓
-FAISS Vector Database
-       ↓
-User Query
-       ↓
-Similarity Search
-       ↓
-Relevant Safety Information
-```
-
----
-
-# 📄 Creating the Vector Database
-
-Safety PDF files should be placed inside:
-
-```text
-Data/safety_documents/
-```
-
-Example:
-
-```text
-Data/
-└── safety_documents/
-    ├── UA_UC_Rules.pdf
-    └── Safety_Knowledge_Base.pdf
-```
-
-Run:
+Copy `.env.example` to `.env` in the root folder:
 
 ```bash
-python create_vector_db.py
+cp .env.example .env
 ```
 
-This creates:
-
-```text
-vector_database/
-├── sifra_faiss.index
-├── chunks.pkl
-└── database_info.json
+Set your `GROQ_API_KEY` in `.env`:
+```env
+GROQ_API_KEY=your_actual_groq_api_key
+MONGODB_URI=mongodb://localhost:27017/sifra_ai
+JWT_SECRET=sifra_ai_super_secret_key_2026
 ```
 
----
+### 2. Start the Backend API
 
-# 🔍 FAISS
-
-FAISS is used to store vector embeddings of the safety documents.
-
-When a user describes an incident:
-
-```text
-User Incident
-      ↓
-Convert Text to Embedding
-      ↓
-FAISS Similarity Search
-      ↓
-Retrieve Relevant Safety Information
-```
-
----
-
-# 🧠 LLM Integration
-
-The project uses:
-
-```text
-Groq API
-```
-
-with the model:
-
-```text
-openai/gpt-oss-20b
-```
-
-The LLM receives:
-
-1. User Incident Description
-2. ML Model Prediction
-3. ML Probability
-4. Relevant RAG Context
-
-Then generates a structured safety analysis.
-
----
-
-# 🔑 API Key Setup
-
-Create a `.env` file in the main project folder.
-
-```text
-GROQ_API_KEY=your_api_key_here
-```
-
-⚠️ Never upload your API key to GitHub.
-
-The `.env` file should be included in `.gitignore`.
-
----
-
-# ▶️ Installation
-
-## 1. Clone Repository
+Install python dependencies and launch FastAPI with Uvicorn:
 
 ```bash
-git clone YOUR_REPOSITORY_URL
+# Install python requirements
+pip install -r backend/requirements.txt
+
+# Run FastAPI server
+python -m uvicorn backend.main:app --reload --port 8000
 ```
 
-Move into the project folder:
+FastAPI interactive Swagger docs will be available at: `http://localhost:8000/docs`
+
+### 3. Start the Next.js Frontend
+
+Navigate to the `frontend` folder, install npm packages, and start dev server:
 
 ```bash
-cd SIFRA-AI
+cd frontend
+npm install
+npm run dev
 ```
+
+Open `http://localhost:3000` in your web browser.
 
 ---
 
-## 2. Install Required Libraries
+## Default Demo Accounts
+
+| Role | Email | Password |
+|---|---|---|
+| **Worker** | `worker@oilindia.in` | `worker123` |
+| **Admin / HSE Lead** | `admin@oilindia.in` | `admin123` |
+
+---
+
+## Database Schemas (MongoDB)
+
+- **`users`**: `_id`, `name`, `email`, `hashed_password`, `role` (`Admin`, `HSE Officer`, `Worker`), `site_id`, `created_at`
+- **`reports`**: `_id`, `worker_id`, `worker_name`, `incident_text`, `establishment_info`, `ml_prediction` (`YES`/`NO`), `ml_probability` (float), `rag_context_sources`, `llm_analysis`, `structured_sections`, `risk_level` (`HIGH`/`MEDIUM`/`LOW`), `timestamp`, `site_id`, `status`, `flagged`
+- **`training_history`**: `_id`, `worker_id`, `report_id`, `quiz_title`, `score`, `total_questions`, `percentage`, `completed_at`
+- **`alerts`**: `_id`, `report_id`, `worker_id`, `type`, `message`, `sent_at`, `status`
+
+---
+
+## Verification & Testing
+
+To verify the Random Forest ML classifier and FAISS RAG document retrieval pipeline standalone, run:
 
 ```bash
-pip install -r requirements.txt
+python test_backend_standalone.py
 ```
 
----
-
-# 📦 Required Libraries
-
-Main libraries include:
-
-```text
-pandas
-numpy
-scikit-learn
-faiss-cpu
-sentence-transformers
-pypdf
-groq
-python-dotenv
-```
-
----
-
-# 📝 Create `requirements.txt`
-
-You can generate it using:
-
-```bash
-pip freeze > requirements.txt
-```
-
-Or manually add:
-
-```text
-pandas
-numpy
-scikit-learn
-faiss-cpu
-sentence-transformers
-pypdf
-groq
-python-dotenv
-```
-
----
-
-# 🚀 Running the Project
-
-## Step 1: Create Vector Database
-
-If the vector database does not already exist:
-
-```bash
-python create_vector_db.py
-```
-
----
-
-## Step 2: Run SIFRA-AI
-
-```bash
-python sifra_final_ai.py
-```
-
----
-
-# 💻 Example Input
-
-```text
-Describe the incident:
-
-A worker ignored a safety procedure while
-working in a potentially hazardous area.
-
-
-Annual Average Employees:
-123
-
-Total Hours Worked:
-500000
-
-NAICS Code:
-211120
-
-Industry Description:
-Crude Petroleum Extraction
-
-Establishment Type:
-1.0
-
-Establishment Size:
-2
-
-State:
-TX
-```
-
----
-
-# 📋 Example Output
-
-```text
-SIFRA-AI FINAL SAFETY ANALYSIS
-
-1. INCIDENT SUMMARY
-
-The system summarizes the user-provided incident.
-
-
-2. ML RISK ESTIMATE
-
-Fatality Indicator: YES
-
-Fatality Probability: XX.XX%
-
-Note:
-This is a model estimate and not a certainty.
-
-
-3. UA / UC ANALYSIS
-
-Analysis based on the incident description
-and retrieved safety knowledge.
-
-
-4. RELEVANT HAZARDS
-
-Only hazards supported by the incident
-description or retrieved knowledge should
-be reported.
-
-
-5. CRITICAL SAFETY BARRIERS
-
-Relevant safety controls and barriers.
-
-
-6. SAFETY OBSERVATIONS
-
-Information retrieved from the safety
-knowledge base.
-
-
-7. LIMITATIONS
-
-The analysis depends on:
-
-- ML training data
-- User-provided information
-- Retrieved PDF knowledge
-```
-
----
-
-# 👥 Team Collaboration
-
-This project uses Git branches for collaboration.
-
-```text
-main
- │
- ├── ml
- │
- ├── backend
- │
- └── frontend
-```
-
-## Branch Rules
-
-⚠️ Do not directly push experimental changes to `main`.
-
-Each team member should work on their own branch.
-
-Example:
-
-```bash
-git checkout -b ml
-```
-
-Push changes:
-
-```bash
-git add .
-
-git commit -m "Add ML model improvements"
-
-git push origin ml
-```
-
-After testing, create a **Pull Request** to merge changes into `main`.
-
----
-
-# 🔐 Important Security Rules
-
-Never upload:
-
-```text
-.env
-API Keys
-Passwords
-Private Credentials
-```
-
-Make sure `.gitignore` contains:
-
-```text
-.env
-__pycache__/
-*.pyc
-venv/
-.venv/
-```
-
----
-
-# ⚠️ Limitations
-
-SIFRA-AI is a prototype and research/project system.
-
-The system:
-
-- Does not guarantee real-world outcomes.
-- Does not replace professional safety experts.
-- Uses historical data for ML estimates.
-- Depends on the quality of the safety documents.
-- May retrieve incomplete information.
-- Should not be used as the sole basis for critical safety decisions.
-
----
-
-# 🔮 Future Improvements
-
-Possible future improvements:
-
-- [ ] Improve ML model performance
-- [ ] Hyperparameter tuning
-- [ ] Add XGBoost comparison
-- [ ] Increase safety knowledge base
-- [ ] Improve document chunking
-- [ ] Add source citations in final output
-- [ ] Add confidence thresholds for RAG
-- [ ] Build a web interface
-- [ ] Add user authentication
-- [ ] Store incident history in a database
-- [ ] Create dashboards and visualizations
-- [ ] Add real-time safety monitoring
-
----
-
-# 👨‍💻 Team
-
-SIFRA-AI is developed as a collaborative team project.
-
-Each team member contributes through separate Git branches and Pull Requests.
-
----
-
-# 🎯 Project Goal
-
-The goal of SIFRA-AI is to combine:
-
-```text
-Machine Learning
-        +
-Retrieval-Augmented Generation
-        +
-Large Language Models
-        ↓
-AI-Assisted Safety Analysis
-```
-
-to provide structured and explainable industrial safety information.
-
----
-
-# 📌 Disclaimer
-
-SIFRA-AI provides AI-assisted analysis for educational and research purposes.
-
-ML predictions are statistical estimates based on training data and should not be interpreted as certain real-world outcomes.
-
-Always follow applicable safety procedures and consult qualified safety professionals for real-world safety decisions.
+This verifies `predict_fatality()` and `search_documents()` execute cleanly without errors.

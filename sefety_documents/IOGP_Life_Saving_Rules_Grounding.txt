@@ -1,0 +1,76 @@
+================================================================================
+IOGP REPORT 590: LIFE-SAVING RULES - INTERNATIONAL ASSOCIATION OF OIL & GAS PRODUCERS
+OFFICIAL SAFETY COMPLIANCE & FATALITY PREVENTION RULES
+================================================================================
+
+The 9 IOGP Life-Saving Rules provide oil and gas operators and contractors with clear actions to prevent serious injuries and fatalities (SIF) during exploration, drilling, production, and maintenance operations.
+
+--------------------------------------------------------------------------------
+RULE 1: ENERGY ISOLATION (Lock-Out / Tag-Out - LOTO)
+--------------------------------------------------------------------------------
+Verify isolation and zero energy state before work begins.
+- Check that all energy sources (electrical, mechanical, pneumatic, hydraulic, chemical, thermal, and gravitational) are isolated, locked out, tagged out, and verified zero-energy.
+- Test that pressure, voltage, toxic gas, and stored energy are completely dissipated before breaking containment or starting maintenance.
+- Never bypass a Lockout/Tagout (LOTO) pin, valve lock, or electrical isolation breaker without formal authorization.
+
+--------------------------------------------------------------------------------
+RULE 2: HOT WORK (Welding, Flame, Grinding, Spark Hazards)
+--------------------------------------------------------------------------------
+Control ignition sources and flammable atmospheres before executing hot work.
+- Obtain a valid Hot Work Permit and verify continuous gas testing prior to starting welding, cutting, grinding, or flame heating near wellheads, separator tanks, or flare stacks.
+- Ensure LEL (Lower Explosive Limit) gas reading is 0.0% before striking an arc or operating non-explosion proof electrical tools in hazardous Zone 1/Zone 2 areas.
+- Keep designated fire watch personnel on duty with certified fire extinguishers for 30 minutes post hot work completion.
+
+--------------------------------------------------------------------------------
+RULE 3: CONFINED SPACE ENTRY
+--------------------------------------------------------------------------------
+Obtain authorization and verify atmospheric safety before entering confined spaces.
+- Never enter a tank, pressure vessel, mud pit, cellar, or enclosed trench without a Confined Space Entry Permit.
+- Conduct continuous oxygen (19.5% - 23.5%), toxic gas (H2S < 5ppm, CO < 25ppm), and flammable gas (LEL = 0%) atmospheric testing.
+- Ensure an assigned attendant remains outside the entrance at all times, equipped with emergency rescue equipment and radio communication.
+
+--------------------------------------------------------------------------------
+RULE 4: WORKING AT HEIGHT
+--------------------------------------------------------------------------------
+Protect yourself against falls when working at height (above 1.8 meters / 6 feet).
+- Use 100% tie-off with double lanyards, full-body safety harness, and certified anchor points when working on derrick platforms, scaffolding, or elevated pipe racks.
+- Inspect scaffolding, toe boards, and safety nets prior to ascent. Ensure safety harness lanyards are anchored above waist level.
+- Prevent dropped objects by securing all hand tools, wrenches, and equipment with safety lanyards.
+
+--------------------------------------------------------------------------------
+RULE 5: LINE OF FIRE
+--------------------------------------------------------------------------------
+Keep yourself and others out of the line of fire of moving machinery, tensioned cables, and stored energy.
+- Position yourself clear of suspended loads, rotating rotary tables, high-pressure iron lines, catheads, and winch cables.
+- Never stand directly in front of open pipe ends, pressurized hoses, or heavy machinery counterweights.
+- Establish exclusion zones and hard barricades around active rig hoisting, pipe handling, and high-pressure pumping zones.
+
+--------------------------------------------------------------------------------
+RULE 6: SAFE MECHANICAL LIFTING
+--------------------------------------------------------------------------------
+Plan lifting operations and control the area.
+- Verify crane capacity, rigging gear inspection, and certified lift plan before hoisting equipment.
+- Ensure crane operators and riggers are certified. Never exceed safe working load (SWL) limits.
+- Never walk or position yourself beneath a suspended load. Use taglines to guide hoisted loads safely.
+
+--------------------------------------------------------------------------------
+RULE 7: DRIVING & TRANSPORTATION
+--------------------------------------------------------------------------------
+Always wear seatbelts, obey speed limits, and avoid distractions while driving.
+- Always wear seatbelts (driver and all passengers) in oilfield vehicles, haulers, and crew transports.
+- Adhere strictly to posted site speed limits and journey management plans.
+- Do not use mobile phones or hand-held devices while driving. Avoid driving when fatigued.
+
+--------------------------------------------------------------------------------
+RULE 8: BYPASSING SAFETY CONTROLS
+--------------------------------------------------------------------------------
+Obtain authorization before overriding or disabling safety controls or safety critical equipment.
+- Never override, defeat, bridge, or bypass emergency shutdown (ESD) valves, pressure relief valves (PRV), gas detectors, or interlocks without documented Management of Change (MOC) and formal HSE approval.
+- Maintain safety-critical equipment in fully operational condition. Report any inhibited alarm or safety bypass immediately.
+
+--------------------------------------------------------------------------------
+RULE 9: MANAGEMENT OF CHANGE (MOC)
+--------------------------------------------------------------------------------
+Manage change before implementing any procedural, operational, or equipment modification.
+- Formally evaluate risks, update safety documentation, and obtain written authorization before altering wellhead piping, chemical injection rates, operating procedures, or equipment designs.
+- Train all affected site personnel on updated hazard controls before resuming modified operations.

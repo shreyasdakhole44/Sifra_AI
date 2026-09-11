@@ -35,10 +35,15 @@ export const TrustReportView: React.FC<TrustReportViewProps> = ({
 
   if (!report) return null;
 
-  const prob = report.ml_probability ?? 0;
+  const mlUnavailable = report.ml_status === 'ML analysis unavailable';
+  const ragUnavailable = report.rag_status === 'Knowledge-base analysis unavailable';
+  const rawProb = report.ml_probability ?? report.probability ?? report.risk?.probability;
+  const prob = (mlUnavailable || rawProb === undefined || rawProb === null) ? 0 : Number(rawProb);
   const probPct = prob > 1.0 ? prob : prob * 100;
-  const riskLevel = (report.risk_level || 'LOW').toUpperCase();
-  const riskColors = getRiskColor(riskLevel);
+  const riskLevel = mlUnavailable
+    ? 'UNAVAILABLE'
+    : (report.risk_level || (probPct >= 50 ? 'HIGH' : probPct >= 30 ? 'MEDIUM' : 'LOW')).toUpperCase();
+  const riskColors = getRiskColor(riskLevel === 'UNAVAILABLE' ? 'LOW' : riskLevel);
 
   const structured = report.structured_sections || {};
   const sources = report.rag_context_sources || [];
@@ -118,8 +123,8 @@ export const TrustReportView: React.FC<TrustReportViewProps> = ({
         <div className="flex items-center space-x-3 bg-slate-800/90 px-4 py-2.5 rounded-lg border border-slate-700 shrink-0">
           <div className="text-right">
             <span className="block text-[10px] uppercase font-bold text-slate-400 tracking-wider">SIF FATALITY RISK</span>
-            <span className={`text-sm font-bold font-mono ${riskColors.text}`}>
-              {probPct.toFixed(1)}% ({riskLevel})
+            <span className={`text-sm font-bold font-mono ${mlUnavailable ? 'text-amber-400' : riskColors.text}`}>
+              {mlUnavailable ? 'ML UNAVAILABLE' : `${probPct.toFixed(1)}% (${riskLevel})`}
             </span>
           </div>
           <div
@@ -127,7 +132,7 @@ export const TrustReportView: React.FC<TrustReportViewProps> = ({
             title={`Risk Tier: ${riskLevel}`}
           >
             <div
-              className={`w-full ${riskColors.bg}`}
+              className={`w-full ${mlUnavailable ? 'bg-amber-500' : riskColors.bg}`}
               style={{ height: `${Math.min(100, Math.max(12, probPct))}%` }}
             />
           </div>
@@ -141,7 +146,12 @@ export const TrustReportView: React.FC<TrustReportViewProps> = ({
           <div className="space-y-1">
             <span className="text-[10px] uppercase font-bold text-slate-500 block">Fatality Indicator</span>
             <div className="flex items-center space-x-1.5 font-bold text-slate-900 text-xs">
-              {report.ml_prediction === 'YES' || riskLevel === 'HIGH' ? (
+              {mlUnavailable ? (
+                <>
+                  <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                  <span className="text-amber-700 font-bold">ML ANALYSIS UNAVAILABLE</span>
+                </>
+              ) : report.ml_prediction === 'YES' || riskLevel === 'HIGH' ? (
                 <>
                   <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
                   <span className="text-rose-700 font-bold">FATALITY RISK CONFIRMED</span>

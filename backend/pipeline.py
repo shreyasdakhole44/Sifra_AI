@@ -1,5 +1,6 @@
 import re
 import os
+import math
 import json
 from typing import Dict, Any, List
 from sifra_final_ai import (
@@ -10,182 +11,220 @@ from sifra_final_ai import (
     get_groq_client
 )
 
+def extract_section_bullets(text: str, section_headers: List[str]) -> List[str]:
+    """Helper to extract bullet points from text under specific section headers."""
+    if not text:
+        return []
+    
+    bullets = []
+    lines = text.splitlines()
+    capturing = False
+    
+    for line in lines:
+        stripped = line.strip()
+        if not stripped:
+            continue
+        
+        # Check if line matches any target header
+        if any(re.search(rf'^\s*(?:\d+[\.\)]\s*)?{re.escape(hdr)}', stripped, re.IGNORECASE) for hdr in section_headers):
+            capturing = True
+            continue
+        elif capturing and re.match(r'^\s*(?:\d+[\.\)]\s*)?[A-Z0-9\s]{3,}:?', stripped) and not stripped.startswith(('•', '-', '*')):
+            # Reached a new section header
+            capturing = False
+            
+        if capturing:
+            clean_bullet = re.sub(r'^[•\-\*\s]+', '', stripped).strip()
+            if clean_bullet and len(clean_bullet) > 3:
+                bullets.append(clean_bullet)
+                
+    return bullets
+
 def analyze_incident_pipeline(incident_text: str, establishment_info: Dict[str, Any] = None) -> Dict[str, Any]:
     raw_text = incident_text.strip() if incident_text else ""
     text_lower = raw_text.lower()
     info = establishment_info or {}
 
+    print(f"\n[2] EXTRACTED INCIDENT TEXT: len={len(raw_text)} char(s)")
+    print(f"Narrative Excerpt: \"{raw_text[:160]}...\"")
+
+    ml_status = "success"
+    rag_status = "success"
+
     # -------------------------------------------------------------
-    # 1. DYNAMIC NLP HAZARD ANALYSIS & SIF ML RISK ESTIMATION
+    # 1. EXECUTE REAL XGBOOST MODEL (TABULAR PRIOR PROBABILITY)
     # -------------------------------------------------------------
-    # Identify domain keywords for precise risk categorization
-    has_loto = any(k in text_lower for k in ["loto", "lockout", "tagout", "isolation", "wellhead", "manifold", "valve", "bleed", "pin"])
-    has_height = any(k in text_lower for k in ["height", "rack", "harness", "lanyard", "anchor", "elevated", "pipe rack", "derrick", "scaffold", "fall"])
-    has_hotwork = any(k in text_lower for k in ["hot work", "grinding", "welding", "spark", "gas test", "permit", "separator", "tank farm", "ignition", "lel"])
-    has_spill = any(k in text_lower for k in ["spill", "leak", "oil spill", "slip", "spill kit", "barricade", "slick"])
-    has_confined = any(k in text_lower for k in ["confined", "mud pit", "pit", "vessel", "tank entry", "attendant", "hole watch", "o2", "h2s", "atmospheric"])
-    has_crane = any(k in text_lower for k in ["crane", "rigging", "suspended", "load", "tagline", "lifting", "underneath", "line of fire", "exclusion zone"])
-    has_vehicle = any(k in text_lower for k in ["vehicle", "speed", "seatbelt", "crossing", "driving", "utility vehicle", "gate 3", "20 km/h"])
-    has_electrical = any(k in text_lower for k in ["electrical", "wiring", "junction", "panel", "substation", "exposed", "arc flash", "cover panel", "protective cover"])
+    try:
+        xgb_pred, xgb_prob = predict_fatality(
+            employees=float(info.get("employees", 100)),
+            hours_worked=float(info.get("hours_worked", 200000)),
+            naics_code=float(info.get("naics_code", 211111)),
+            industry=info.get("industry", "Oil and Gas Extraction"),
+            establishment_type=info.get("establishment_type", "Operating"),
+            size=info.get("size", "100 to 249"),
+            state=info.get("state", "TX")
+        )
+    except Exception as e:
+        print(f"Error running XGBoost model: {e}")
+        ml_status = "ML analysis unavailable"
+        xgb_pred, xgb_prob = "NO", 17.27
 
-    # Base XGBoost prediction check
-    xgb_pred, xgb_prob = predict_fatality(
-        employees=float(info.get("employees", 100)),
-        hours_worked=float(info.get("hours_worked", 200000)),
-        naics_code=float(info.get("naics_code", 211111)),
-        industry=info.get("industry", "Oil and Gas Extraction"),
-        establishment_type=info.get("establishment_type", "Operating"),
-        size=info.get("size", "100 to 249"),
-        state=info.get("state", "TX")
-    )
+    # -------------------------------------------------------------
+    # 2. DYNAMIC NLP HAZARD FEATURE VECTORIZER & LOGIT ENSEMBLE MATH
+    # -------------------------------------------------------------
+    # Clean text to prevent false positives from negated phrases like 'no high pressure' or 'no gas leak'
+    clean_text = re.sub(r'\bno\s+(?:high\s+)?(?:pressure|gas|leak|loto|spill|hazard|issue)\b', '', text_lower)
 
-    # Calculate dynamic SIF probability based on text NLP hazard severity
-    if has_hotwork:
-        probability = 89.0
-        prediction = "YES"
-        risk_level = "HIGH"
-        iogp_rules = [
-            {"id": "hotwork", "name": "Hot Work & Ignition Control", "desc": "Identify hazardous atmosphere and clear flammable materials before spark work."},
-            {"id": "permit", "name": "Work Permit System", "desc": "Do not execute hot work without an authorized permit and continuous gas testing."}
-        ]
-        unsafe_acts = ["Conducting grinding hot spark work near hydrocarbon separator tank without gas testing verification."]
-        unsafe_conditions = ["Missing posted Hot Work Permit and unrecorded atmospheric LEL/gas test readings on permit board."]
-        failed_barriers = ["Pre-work flammable gas testing & LEL monitoring", "Hot Work Permit posting & verification", "Fire watch & spark containment screen"]
-        relevant_hazards = ["Explosive gas atmosphere ignition from grinding sparks", "Hydrocarbon vapor accumulation near separator tank", "Unmonitored LEL gas concentration"]
-        critical_barriers = ["Calibrated Gas Testing & LEL Monitoring", "Hot Work Permitting & Fire Watch Coverage", "Spark Containment Tarpaulins & Extinguishers"]
+    # High potential fatality / severity signals
+    high_pot_signals = ["fatality", "fatal", "loss of containment", "high energy release", "stored pressure", "explosion", "fire", "hydrocarbon release", "line-of-fire", "loto verification was not confirmed", "unisolated"]
+    high_pot_score = sum(0.5 for sig in high_pot_signals if sig in clean_text)
 
-    elif has_confined:
-        probability = 88.4
-        prediction = "YES"
-        risk_level = "HIGH"
-        iogp_rules = [
-            {"id": "confined", "name": "Confined Space Entry", "desc": "Confirm gas testing, entry permit, and attendant before entering tanks/vessels."}
-        ]
-        unsafe_acts = ["Attempting entry into mud pit tank for cleaning prior to obtaining authorized Confined Space Permit and stationing attendant."]
-        unsafe_conditions = ["Unmonitored mud pit confined space lacking atmospheric gas clearance testing and entry authorization."]
-        failed_barriers = ["Confined Space Entry Permit clearance", "Stand-by attendant (hole watch) posting", "Pre-entry O2/H2S atmospheric testing"]
-        relevant_hazards = ["Toxic gas exposure (H2S / Methane) inside mud pit tank", "Oxygen deficiency asphyxiation risk", "Entrapment with no emergency rescue watch"]
-        critical_barriers = ["Stand-by Hole Watch Attendant Stationing", "Continuous Atmospheric O2/H2S Gas Monitoring", "Confined Space Entry Permit Authorization"]
+    # Hazard dimension keyword intensity evaluation
+    p_press = sum(0.4 for k in ["pressurized", "pressure", "hydrocarbon", "gas surge", "bleed", "manifold", "valve", "containment", "pipe"] if k in clean_text)
+    p_loto = sum(0.45 for k in ["loto", "lockout", "tagout", "isolation", "unisolated", "isolation point", "zero-energy"] if k in clean_text)
+    p_height = sum(0.4 for k in ["height", "pipe rack", "harness", "lanyard", "anchor", "elevated", "fall", "derrick", "scaffold"] if k in clean_text)
+    p_confined = sum(0.45 for k in ["confined", "mud pit", "pit", "vessel", "tank entry", "attendant", "hole watch", "o2", "h2s", "gas clearance"] if k in clean_text)
+    p_hotwork = sum(0.4 for k in ["hot work", "grinding", "welding", "spark", "gas test", "separator", "ignition", "flammable"] if k in clean_text)
+    p_electrical = sum(0.4 for k in ["electrical", "wiring", "junction", "panel", "arc flash", "substation", "exposed"] if k in clean_text)
+    p_crane = sum(0.4 for k in ["crane", "suspended load", "rigging", "tagline", "lifting", "underneath"] if k in clean_text)
+    p_vehicle = sum(0.3 for k in ["vehicle", "speed", "seatbelt", "crossing", "driving"] if k in clean_text)
 
-    elif has_height:
-        probability = 84.2
-        prediction = "YES"
-        risk_level = "HIGH"
-        iogp_rules = [
-            {"id": "height", "name": "Working at Height", "desc": "Use fall protection equipment when working outside protected areas at 1.8m height or above."}
-        ]
-        unsafe_acts = ["Working on elevated pipe rack (approx 3.5m height) without clipping safety harness lanyard to a certified anchor point."]
-        unsafe_conditions = ["Absence of continuous overhead lifeline along pipe rack transit route."]
-        failed_barriers = ["Fall arrest lanyard anchor connection", "100% tie-off compliance enforcement", "Continuous overhead lifeline availability"]
-        relevant_hazards = ["Fall from height (3.5m pipe rack level)", "Impact hazard against derrick platform structural members", "Lack of certified anchor attachment"]
-        critical_barriers = ["Certified Anchor Points & Overhead Lifeline Systems", "100% Tie-Off Safety Harness Lanyard Connection", "Fall Protection Inspection & Tagging"]
+    # Low hazard / housekeeping mitigation signals
+    low_hazard_signals = ["clean floor", "organized", "toolbox", "no spill", "routine inspection", "minor drip tray", "housekeeping"]
+    low_hazard_score = sum(0.5 for k in low_hazard_signals if k in text_lower)
 
-    elif has_crane:
-        probability = 82.0
-        prediction = "YES"
-        risk_level = "HIGH"
-        iogp_rules = [
-            {"id": "lineoffire", "name": "Line of Fire", "desc": "Keep clear of moving machinery, suspended loads, and vehicle transit paths."},
-            {"id": "lifting", "name": "Safe Mechanical Lifting", "desc": "Verify lifting gear, load capacity, and exclusion zone before lifting."}
-        ]
-        unsafe_acts = ["Walking directly underneath a suspended crane load while repositioning a tagline during lifting operations."]
-        unsafe_conditions = ["Inadequate physical exclusion zone barricades around crane swing radius and suspended load path."]
-        failed_barriers = ["Crane lifting exclusion zone enforcement", "Tagline positioning distance safety clearance", "Banksman / Rigger visual clearance warning"]
-        relevant_hazards = ["Crushing / fatality hazard from falling suspended load", "Line of fire exposure underneath crane hook", "Tagline entanglement"]
-        critical_barriers = ["Exclusion Zone Barrier Taping & Signage", "Line of Fire Safe Distance Clearance", "Banksman / Rigging Supervisor Direct Control"]
+    total_nlp_score = high_pot_score + p_press + p_loto + p_height + p_confined + p_hotwork + p_electrical + p_crane + p_vehicle - low_hazard_score
 
-    elif has_electrical:
-        probability = 79.5
-        prediction = "YES"
-        risk_level = "HIGH"
-        iogp_rules = [
-            {"id": "bypass", "name": "Bypassing Safety Controls", "desc": "Obtain authorization before overriding or disabling safety critical equipment."},
-            {"id": "loto", "name": "Energy Isolation / Electrical Safety", "desc": "Verify electrical isolation and enclosure shielding before leaving equipment."}
-        ]
-        unsafe_acts = ["Leaving electrical junction box protective cover panel detached on floor without installing warning barriers."]
-        unsafe_conditions = ["Exposed energized electrical wiring inside Panel Room B junction box without protective shielding."]
-        failed_barriers = ["Electrical junction box panel enclosure integrity", "Temporary electrical hazard warning barricading"]
-        relevant_hazards = ["Electrical shock and arc flash ignition hazard from exposed wiring", "Accidental contact with live electrical terminals in Panel Room B"]
-        critical_barriers = ["Electrical Panel Enclosure Fastening & Latching", "Arc Flash Protective Shielding & Covers", "Warning Tape & Hazard Signage Barricades"]
+    print(f"[3] NLP FEATURES: high_pot={high_pot_score:.2f}, hazard_dim_sum={(p_press+p_loto+p_height+p_confined+p_hotwork+p_electrical+p_crane+p_vehicle):.2f}, low_mitigation={low_hazard_score:.2f}, total_nlp_score={total_nlp_score:.2f}")
 
-    elif has_loto:
-        probability = 78.5
-        prediction = "YES"
-        risk_level = "HIGH"
-        iogp_rules = [
-            {"id": "loto", "name": "Energy Isolation / LOTO", "desc": "Verify mechanical isolation and discharge stored energy before starting work."},
-            {"id": "bypass", "name": "Bypassing Safety Controls", "desc": "Obtain authorization before overriding or disabling safety critical equipment."}
-        ]
-        unsafe_acts = ["Attempting to open wellhead manifold valve prior to verifying positive mechanical Lockout/Tagout (LOTO) isolation."]
-        unsafe_conditions = ["Missing LOTO verification tag on isolation valve.", "Unconfirmed mechanical isolation pin on wellhead manifold."]
-        failed_barriers = ["Mechanical LOTO isolation pin engagement", "Isolation verification tagging", "Positive energy bleed relief check"]
-        relevant_hazards = ["Pressurized hydrocarbon gas/fluid release from wellhead manifold", "Uncontrolled line pressure surge during valve manipulation", "Unverified isolation point state"]
-        critical_barriers = ["LOTO Mechanical Lockouts & Pressure Bleed Relief Lines", "Isolation Verification Tagging Protocol", "Zero-Energy State Bleed Valve Check"]
+    # Convert XGBoost prior probability to logit space and add NLP hazard intensity score
+    p_prior = max(0.01, min(0.99, (xgb_prob / 100.0)))
+    prior_logit = math.log(p_prior / (1.0 - p_prior))
+    combined_logit = prior_logit + total_nlp_score
 
-    elif has_vehicle:
-        probability = 48.0
-        prediction = "NO"
-        risk_level = "MEDIUM"
-        iogp_rules = [
-            {"id": "driving", "name": "Driving & Vehicle Safety", "desc": "Obey speed limits, wear seatbelts, and yield to pedestrians at all times."}
-        ]
-        unsafe_acts = ["Operating site utility vehicle in excess of posted 20 km/h internal speed limit near pedestrian crossing Gate 3.", "Driving utility vehicle without fastening safety seatbelt."]
-        unsafe_conditions = ["Pedestrian crossing at Gate 3 lacking raised speed humps or active flashing warning beacons."]
-        failed_barriers = ["Internal vehicle speed limit compliance", "Driver seatbelt fastening interlock", "Pedestrian crossing speed mitigation"]
-        relevant_hazards = ["Vehicle-pedestrian collision hazard at Gate 3 crossing", "Vehicle rollover / collision injury due to unfastened seatbelt"]
-        critical_barriers = ["Seatbelt Fastening Compliance", "In-Vehicle Speed Monitoring (IVMS)", "Pedestrian Crossing Speed Humps & Signage"]
-
-    elif has_spill:
-        probability = 18.5
+    # Calibrated probability in percentage [5.0%, 95.0%]
+    if ml_status == "success":
+        probability = round(min(95.0, max(5.0, (1.0 / (1.0 + math.exp(-combined_logit))) * 100.0)), 1)
+        prediction = "YES" if probability >= 50.0 else "NO"
+        risk_level = "HIGH" if probability >= 50.0 else ("MEDIUM" if probability >= 30.0 else "LOW")
+    else:
+        probability = 0.0
         prediction = "NO"
         risk_level = "LOW"
-        iogp_rules = [
-            {"id": "env", "name": "Environmental & Worksite Housekeeping", "desc": "Promptly contain and clean chemical/oil spills to prevent slip hazards and environmental release."}
-        ]
-        unsafe_acts = ["Delay in deploying absorbent spill kit immediately upon discovering crude oil leak near storage tank access ladder."]
-        unsafe_conditions = ["1 sq. m crude oil slick at base of storage tank access ladder creating slip hazard."]
-        failed_barriers = ["Tank ladder drip containment", "Immediate spill kit deployment protocol"]
-        relevant_hazards = ["Personnel slip and fall hazard at tank access ladder", "Minor localized ground soil hydrocarbon contamination"]
-        critical_barriers = ["Spill Kit & Absorbent Deployment", "Drip Tray & Barricade Housekeeping", "Access Ladder Cleaning & Degreasing"]
 
-    else:
-        # Custom / General Safety Incident
-        high_severity_terms = ["fire", "explosion", "gas leak", "pressure surge", "unconscious", "h2s", "fatality", "electrocution", "crushed"]
-        med_severity_terms = ["near miss", "no ppe", "trip", "spill", "defect", "improper tool", "leak", "unsecured"]
-        
-        high_count = sum(1 for w in high_severity_terms if w in text_lower)
-        med_count = sum(1 for w in med_severity_terms if w in text_lower)
+    print(f"[7] SIF PROBABILITY: {probability:.1f}% (Prior XGBoost: {xgb_prob:.1f}%, Logit Shift: {total_nlp_score:+.2f})")
+    print(f"[8] RISK BAND: {risk_level} (Fatality Flag: {prediction})")
 
-        if high_count > 0:
-            probability = min(92.0, 60.0 + (high_count * 10.0))
-            prediction = "YES"
-            risk_level = "HIGH"
-        elif med_count > 0:
-            probability = min(48.0, 25.0 + (med_count * 8.0))
-            prediction = "NO"
-            risk_level = "MEDIUM"
+    # -------------------------------------------------------------
+    # 3. DYNAMIC PARSING / EXTRACTION OF UA, UC, IOGP RULES & BARRIERS
+    # -------------------------------------------------------------
+    # First attempt to extract explicit sections from document (e.g. PDF text)
+    ua_extracted = extract_section_bullets(raw_text, ["UNSAFE ACTS", "UNSAFE ACTS (UA)", "UNSAFE ACT"])
+    uc_extracted = extract_section_bullets(raw_text, ["UNSAFE CONDITIONS", "UNSAFE CONDITIONS (UC)", "UNSAFE CONDITION", "IMMEDIATE HAZARD"])
+    iogp_extracted = extract_section_bullets(raw_text, ["POTENTIAL IOGP LIFE-SAVING RULES", "IOGP LIFE-SAVING RULES", "IOGP RULES"])
+    barriers_extracted = extract_section_bullets(raw_text, ["CRITICAL SAFETY BARRIERS INVOLVED", "CRITICAL BARRIERS", "RECOMMENDED ACTIONS"])
+
+    # Fallback / Dynamic mapping based on NLP hazard intensity
+    unsafe_acts = ua_extracted
+    unsafe_conditions = uc_extracted
+    critical_barriers = barriers_extracted
+    iogp_rules = []
+
+    if not unsafe_acts:
+        if p_loto > 0 or p_press > 0:
+            unsafe_acts.append("Attempting valve operation before positive isolation and LOTO verification.")
+            unsafe_acts.append("Entering/working close to a potential line-of-fire zone before controls were confirmed.")
+        elif p_height > 0:
+            unsafe_acts.append("Working on elevated pipe rack at height without 100% safety harness tie-off.")
+        elif p_hotwork > 0:
+            unsafe_acts.append("Executing grinding spark work near hydrocarbon vessel without prior gas clearance testing.")
+        elif p_confined > 0:
+            unsafe_acts.append("Attempting entry into vessel/pit prior to obtaining Confined Space Permit and hole watch.")
+        elif p_electrical > 0:
+            unsafe_acts.append("Leaving electrical junction box cover detached without warning barricades.")
+        elif p_crane > 0:
+            unsafe_acts.append("Walking underneath suspended crane load during tagline repositioning.")
+        elif low_hazard_score > 0:
+            unsafe_acts.append("Minor housekeeping delay in stowing hand tools after shift completion.")
         else:
-            probability = max(xgb_prob, 15.0)
-            prediction = "YES" if probability >= 50.0 else "NO"
-            risk_level = "HIGH" if probability >= 50.0 else ("MEDIUM" if probability >= 30.0 else "LOW")
+            unsafe_acts.append(f"Observed operational act: '{raw_text[:120]}'")
 
-        iogp_rules = [
-            {"id": "hazard_control", "name": "Worksite Hazard Control", "desc": "Inspect equipment, verify safety clearance, and follow site HSE guidelines."}
-        ]
-        unsafe_acts = [f"Unsafe act observed during operation: '{raw_text[:120]}...'"]
-        unsafe_conditions = ["Uncontrolled operational hazard at work site."]
-        failed_barriers = ["Pre-task hazard identification", "Worksite visual inspection"]
-        relevant_hazards = ["Operational safety exposure", "Industrial hazard risk"]
-        critical_barriers = ["Mandatory Pre-Job Hazard Analysis (JHA)", "Site Supervisor Clearance Sign-off"]
+    if not unsafe_conditions:
+        if p_loto > 0 or p_press > 0:
+            unsafe_conditions.append("LOTO verification was not confirmed at the isolation point.")
+            unsafe_conditions.append("Incomplete exclusion barrier around pressurized line work area.")
+            unsafe_conditions.append("Potential stored pressure remained in process line.")
+        elif p_height > 0:
+            unsafe_conditions.append("Absence of certified overhead lifeline along elevated work route.")
+        elif p_hotwork > 0:
+            unsafe_conditions.append("Unmonitored LEL hydrocarbon gas concentration near separator tank.")
+        elif p_confined > 0:
+            unsafe_conditions.append("Unmonitored confined space atmospheric gas clearance.")
+        elif p_electrical > 0:
+            unsafe_conditions.append("Exposed live electrical terminals inside junction box panel.")
+        elif p_crane > 0:
+            unsafe_conditions.append("Inadequate exclusion zone barricades around crane swing radius.")
+        elif low_hazard_score > 0:
+            unsafe_conditions.append("Worksite floor requires routine cleaning and tool sorting.")
+        else:
+            unsafe_conditions.append("Uncontrolled operational hazard at work site.")
+
+    # IOGP Rules mapping
+    if iogp_extracted:
+        for r_name in iogp_extracted:
+            iogp_rules.append({"id": r_name.lower().replace(" ", "_"), "name": r_name, "desc": f"Mandatory compliance rule: {r_name}"})
+    else:
+        if p_loto > 0 or p_press > 0:
+            iogp_rules.append({"id": "loto", "name": "Energy Isolation / LOTO", "desc": "Verify mechanical isolation and discharge stored pressure before work."})
+            iogp_rules.append({"id": "lineoffire", "name": "Line of Fire", "desc": "Keep clear of moving machinery, stored energy, and pressurized release paths."})
+            iogp_rules.append({"id": "bypass", "name": "Bypassing Safety Controls", "desc": "Obtain authorization before overriding safety critical equipment."})
+        elif p_height > 0:
+            iogp_rules.append({"id": "height", "name": "Working at Height", "desc": "Use fall protection when working outside protected areas at 1.8m height or above."})
+        elif p_hotwork > 0:
+            iogp_rules.append({"id": "hotwork", "name": "Hot Work & Ignition Control", "desc": "Identify hazardous atmosphere and clear flammable materials before spark work."})
+        elif p_confined > 0:
+            iogp_rules.append({"id": "confined", "name": "Confined Space Entry", "desc": "Confirm gas testing, entry permit, and attendant before entering tanks/pits."})
+        elif p_electrical > 0:
+            iogp_rules.append({"id": "electrical", "name": "Electrical Safety & LOTO", "desc": "Verify electrical isolation and protective enclosure shielding."})
+        elif p_crane > 0:
+            iogp_rules.append({"id": "lifting", "name": "Safe Mechanical Lifting", "desc": "Verify lifting gear, load capacity, and exclusion zone before lifting."})
+        else:
+            iogp_rules.append({"id": "env", "name": "Environmental & Worksite Housekeeping", "desc": "Maintain clean worksite conditions and inspect equipment regularly."})
+
+    if not critical_barriers:
+        if p_loto > 0 or p_press > 0:
+            critical_barriers = [
+                "Positive Energy Isolation / Lock-Out-Tag-Out (LOTO) verification.",
+                "Pressure bleed-off and zero-energy verification before line operation.",
+                "Line-of-fire exclusion zone and physical barricading.",
+                "Gas detection and emergency shutdown readiness."
+            ]
+        elif p_height > 0:
+            critical_barriers = ["Certified Anchor Points & Overhead Lifeline Systems", "100% Tie-Off Safety Harness Connection"]
+        elif p_hotwork > 0:
+            critical_barriers = ["Calibrated Gas Testing & LEL Monitoring", "Hot Work Permitting & Fire Watch Coverage"]
+        else:
+            critical_barriers = ["Mandatory Pre-Job Hazard Analysis (JHA)", "Site Supervisor Clearance Sign-off"]
+
+    failed_barriers = ["Pre-work hazard identification & LOTO verification", "Exclusion zone barricade setup"]
+    relevant_hazards = unsafe_conditions
 
     # -------------------------------------------------------------
-    # 2. HYBRID RAG CONTEXT RETRIEVAL (FAISS + BM25 + CROSS-ENCODER)
+    # 4. HYBRID RAG RETRIEVAL (FAISS + BM25 + CROSS-ENCODER)
     # -------------------------------------------------------------
-    rag_results = search_documents(raw_text, top_k=3)
-    rag_context = create_rag_context(rag_results)
+    try:
+        rag_results = search_documents(raw_text, top_k=3)
+        rag_context = create_rag_context(rag_results)
+    except Exception as e:
+        print(f"Notice: Hybrid RAG error: {e}")
+        rag_status = "Knowledge-base analysis unavailable"
+        rag_results = []
+        rag_context = ""
+
+    print(f"[9] RAG RESULTS: retrieved_chunks={len(rag_results)}, rag_status='{rag_status}'")
 
     # -------------------------------------------------------------
-    # 3. GROQ LLM SYNTHESIS & STRUCTURED SECTION PARSING
+    # 5. GROQ LLM SYNTHESIS & STRUCTURED SECTION PARSING
     # -------------------------------------------------------------
     llm_analysis_raw = generate_sifra_response(
         incident=raw_text,
@@ -204,18 +243,9 @@ def analyze_incident_pipeline(incident_text: str, establishment_info: Dict[str, 
         "limitations": "SIFRA AI fatality probabilities are statistical XGBoost risk estimates derived from historical OSHA/BLS datasets. All AI predictions must be paired with physical on-site HSE inspection."
     }
 
-    # -------------------------------------------------------------
-    # 4. BACKEND LOGGING FOR DEBUG AUDIT
-    # -------------------------------------------------------------
-    print(f"\n[TRUST REPORT DEBUG]")
-    print(f"Incident Text: {raw_text[:100]}...")
-    print(f"Extracted SIF Probability: {probability:.1f}%")
-    print(f"Fatality Flag: {prediction}")
-    print(f"Risk Band: {risk_level}")
-    print(f"IOGP Rules Mapped: {[r['name'] for r in iogp_rules]}")
-    print(f"RAG Citations Count: {len(rag_results)}\n")
-
     return {
+        "ml_status": ml_status,
+        "rag_status": rag_status,
         "ml_prediction": prediction,
         "ml_probability": probability,
         "risk_level": risk_level,
@@ -227,8 +257,8 @@ def analyze_incident_pipeline(incident_text: str, establishment_info: Dict[str, 
         "unsafe_conditions": unsafe_conditions,
         "iogp_rules": iogp_rules,
         "failed_barriers": failed_barriers,
-        "relevant_hazards": relevant_hazards,
-        "critical_barriers": critical_barriers
+        "critical_barriers": critical_barriers,
+        "relevant_hazards": relevant_hazards
     }
 
 def generate_quiz_from_rag(incident_text: str, rag_context: str) -> List[Dict[str, Any]]:

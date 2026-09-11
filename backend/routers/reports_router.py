@@ -7,7 +7,7 @@ from typing import Optional, Dict, Any, List
 from backend.auth import get_current_user, require_roles
 from backend.database import (
     create_report, get_reports, get_report_by_id, update_report_status,
-    create_alert, add_report_attachment, parse_batch_worker_entries
+    create_alert, add_report_attachment, parse_batch_worker_entries, update_report_fields
 )
 from backend.pipeline import analyze_incident_pipeline, generate_quiz_from_rag
 from backend.config import settings
@@ -18,6 +18,17 @@ router = APIRouter(prefix="/reports", tags=["Incident Reports"])
 
 UPLOAD_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "uploads", "reports")
 os.makedirs(UPLOAD_DIR, exist_ok=True)
+
+def extract_pdf_text(file_bytes: bytes) -> str:
+    try:
+        import io
+        import pypdf
+        reader = pypdf.PdfReader(io.BytesIO(file_bytes))
+        pages = [page.extract_text() for page in reader.pages if page.extract_text()]
+        return "\n".join(pages).strip()
+    except Exception as e:
+        print(f"Warning extracting PDF text: {e}")
+        return ""
 
 class EstablishmentInfo(BaseModel):
     employees: float = 100.0
@@ -51,6 +62,7 @@ async def submit_incident_report(
     req: CreateReportRequest,
     current_user: dict = Depends(get_current_user)
 ):
+    print(f"\n[1] RAW REQUEST: worker_id={req.worker_id}, site_id={req.site_id}, has_files={req.has_files}, text_len={len(req.incident_text or '')}")
     has_text = bool(req.incident_text and len(req.incident_text.strip()) > 0)
     if not has_text and not req.has_files:
         raise HTTPException(
@@ -82,6 +94,8 @@ async def submit_incident_report(
         "worker_name": f"Worker ({target_worker_id})",
         "incident_text": raw_text,
         "establishment_info": info_dict,
+        "ml_status": analysis.get("ml_status", "success"),
+        "rag_status": analysis.get("rag_status", "success"),
         "ml_prediction": analysis["ml_prediction"],
         "ml_probability": analysis["ml_probability"],
         "risk_level": analysis["risk_level"],
@@ -112,6 +126,7 @@ async def submit_incident_report(
         channel="both"
     )
 
+    print(f"[10] FINAL API RESPONSE: report_id={saved_report['id']}, risk_level={saved_report['risk_level']}, probability={saved_report['ml_probability']}%\n")
     return saved_report
 
 @router.post("/batch", response_model=List[Dict[str, Any]])
@@ -196,7 +211,7 @@ async def get_report_details(
         )
     return report
 
-@router.post("/{report_id}/attachments", response_model=List[Dict[str, Any]])
+@router.post("/{report_id}/attachments", response_model=Dict[str, Any])
 async def upload_report_attachments(
     report_id: str,
     files: List[UploadFile] = File(...),
@@ -220,7 +235,7 @@ async def upload_report_attachments(
     os.makedirs(report_upload_dir, exist_ok=True)
 
     allowed_prefixes = ("image/", "application/pdf", "audio/")
-    attachments = []
+    extracted_pdf_narrative = ""
 
     for file in files:
         if not file.content_type or not any(file.content_type.startswith(p) for p in allowed_prefixes):
@@ -236,6 +251,13 @@ async def upload_report_attachments(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"File '{file.filename}' exceeds maximum allowed size of 10MB."
             )
+
+        # If PDF uploaded, extract narrative text from PDF
+        if file.content_type == "application/pdf" or file.filename.lower().endswith(".pdf"):
+            pdf_txt = extract_pdf_text(content)
+            if pdf_txt and len(pdf_txt.strip()) > 20:
+                extracted_pdf_narrative = pdf_txt.strip()
+                print(f"[2] EXTRACTED INCIDENT TEXT FROM PDF ({file.filename}): len={len(extracted_pdf_narrative)} char(s)")
 
         file_id = str(uuid.uuid4())[:8]
         safe_filename = f"{file_id}_{file.filename.replace(' ', '_')}"
@@ -253,10 +275,37 @@ async def upload_report_attachments(
             "uploaded_by": current_user.get("worker_id", current_user["id"])
         }
 
-        updated_list = await add_report_attachment(report_id, attachment_meta)
-        attachments = updated_list
+        await add_report_attachment(report_id, attachment_meta)
 
-    return attachments
+    # Re-evaluate SIF analysis if PDF narrative was extracted
+    if extracted_pdf_narrative:
+        info_dict = report.get("establishment_info", {})
+        analysis = analyze_incident_pipeline(extracted_pdf_narrative, info_dict)
+        
+        update_fields = {
+            "incident_text": extracted_pdf_narrative,
+            "ml_status": analysis.get("ml_status", "success"),
+            "rag_status": analysis.get("rag_status", "success"),
+            "ml_prediction": analysis["ml_prediction"],
+            "ml_probability": analysis["ml_probability"],
+            "risk_level": analysis["risk_level"],
+            "rag_context_sources": analysis["rag_results"],
+            "llm_analysis": analysis["llm_analysis_raw"],
+            "structured_sections": analysis["structured_sections"],
+            "unsafe_acts": analysis.get("unsafe_acts", []),
+            "unsafe_conditions": analysis.get("unsafe_conditions", []),
+            "iogp_rules": analysis.get("iogp_rules", []),
+            "failed_barriers": analysis.get("failed_barriers", []),
+            "critical_barriers": analysis.get("critical_barriers", []),
+            "relevant_hazards": analysis.get("relevant_hazards", []),
+            "status": "Pending Review" if analysis["risk_level"] == "HIGH" else "Resolved",
+            "flagged": analysis["risk_level"] == "HIGH"
+        }
+        await update_report_fields(report_id, update_fields)
+        print(f"[10] FINAL API RESPONSE (POST-ATTACHMENT): report_id={report_id}, risk_level={analysis['risk_level']}, probability={analysis['ml_probability']}%\n")
+
+    updated_report = await get_report_by_id(report_id)
+    return updated_report or {}
 
 @router.get("/{report_id}/attachments", response_model=List[Dict[str, Any]])
 async def get_report_attachments(

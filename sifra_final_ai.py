@@ -60,6 +60,9 @@ def predict_fatality(
     state="TX"
 ):
     load_resources()
+    if ml_model is None:
+        raise RuntimeError("SIFRA ML Model V2 failed to load from disk.")
+
     input_data = pd.DataFrame({
         "annual_average_employees": [float(employees)],
         "total_hours_worked": [float(hours_worked)],
@@ -70,10 +73,18 @@ def predict_fatality(
         "state": [str(state)]
     })
 
-    prediction = ml_model.predict(input_data)[0]
+    classes = getattr(ml_model, "classes_", [0, 1])
     probabilities = ml_model.predict_proba(input_data)[0]
-    fatality_probability = float(probabilities[1] * 100)
+    prediction = ml_model.predict(input_data)[0]
+
+    # Map SIF / Fatality class index (Class 1)
+    sif_class_idx = 1 if 1 in classes else (len(classes) - 1)
+    fatality_probability = float(probabilities[sif_class_idx] * 100)
     prediction_text = "YES" if prediction == 1 else "NO"
+
+    print(f"[4] XGBOOST INPUT: {input_data.to_dict(orient='records')[0]}")
+    print(f"[5] XGBOOST RAW OUTPUT: classes={classes}, probabilities={probabilities.tolist()}")
+    print(f"[6] SIF CLASS INDEX: {sif_class_idx} (Target SIF Class: {classes[sif_class_idx]})")
 
     return prediction_text, fatality_probability
 

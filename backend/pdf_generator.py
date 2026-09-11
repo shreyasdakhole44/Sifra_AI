@@ -177,8 +177,11 @@ def generate_trust_report_pdf(report: dict) -> bytes:
 
     # 2.4 UA / UC SPLIT CARDS (Side-by-Side)
     sections = report.get('structured_sections', {})
-    ua_text = sanitize_markdown_text(sections.get('ua_uc_analysis', '• Operating valve without LOTO isolation lock'))
-    uc_text = sanitize_markdown_text(sections.get('relevant_hazards', '• Uncalibrated pressure manifold gauge'))
+    ua_list = report.get('unsafe_acts') or [sections.get('ua_uc_analysis', '')]
+    uc_list = report.get('unsafe_conditions') or report.get('relevant_hazards') or [sections.get('relevant_hazards', '')]
+    
+    ua_text = sanitize_markdown_text("<br/>".join([f"• {u}" for u in ua_list if u])) or "• No specific unsafe acts flagged."
+    uc_text = sanitize_markdown_text("<br/>".join([f"• {u}" for u in uc_list if u])) or "• No specific unsafe conditions flagged."
 
     ua_uc_data = [
         [
@@ -204,12 +207,13 @@ def generate_trust_report_pdf(report: dict) -> bytes:
 
     # 2.5 VIOLATED IOGP LIFE-SAVING RULES
     story.append(Paragraph("VIOLATED IOGP LIFE-SAVING RULES", heading_style))
-    rules_text = (
-        "<b>• Energy Isolation / LOTO:</b> Verify isolation and discharge stored energy before starting work.<br/>"
-        "<b>• Bypassing Safety Controls:</b> Obtain authorization before overriding or disabling safety critical equipment.<br/>"
-        "<b>• Hot Work & Ignition Control:</b> Identify hazardous atmosphere and clear flammable materials.<br/>"
-        "<b>• Confined Space Entry:</b> Confirm gas testing and emergency response plan."
-    )
+    iogp_rules = report.get('iogp_rules', [])
+    if iogp_rules:
+        rules_lines = [f"<b>• {r.get('name', 'Rule')}:</b> {r.get('desc', '')}" for r in iogp_rules]
+        rules_text = "<br/>".join(rules_lines)
+    else:
+        rules_text = "<b>• Worksite Hazard Control:</b> Inspect equipment, verify safety clearance, and follow site HSE guidelines."
+    
     rules_table = Table([[Paragraph(rules_text, body_style)]], colWidths=[540])
     rules_table.setStyle(TableStyle([
         ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor('#F8FAFC')),
@@ -221,11 +225,13 @@ def generate_trust_report_pdf(report: dict) -> bytes:
 
     # 2.6 RECOMMENDED ACTIONS & CRITICAL BARRIERS TO RESTORE
     story.append(Paragraph("RECOMMENDED ACTIONS & CRITICAL BARRIERS TO RESTORE", heading_style))
-    barriers_text = (
-        "[✓] <b>LOTO Mechanical Lockouts & Pressure Bleed Relief Lines</b><br/>"
-        "[✓] <b>Continuous Hydrocarbon & Toxic Gas Detection Sensors</b><br/>"
-        "[✓] <b>Personal Protective Equipment (PPE) & Emergency Shutdown (ESD) Valves</b>"
-    )
+    barriers = report.get('critical_barriers') or report.get('failed_barriers') or []
+    if barriers:
+        barriers_lines = [f"[✓] <b>{b}</b>" for b in barriers]
+        barriers_text = "<br/>".join(barriers_lines)
+    else:
+        barriers_text = "[✓] <b>Worksite Hazard Inspection & Pre-Job Sign-off</b>"
+        
     barriers_table = Table([[Paragraph(barriers_text, body_style)]], colWidths=[540])
     barriers_table.setStyle(TableStyle([
         ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor('#F0FDF4')),

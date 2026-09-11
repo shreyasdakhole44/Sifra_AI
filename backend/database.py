@@ -226,6 +226,16 @@ async def update_report_status(report_id: str, status: str) -> Optional[Dict[str
             return in_memory_db.reports[report_id]
         return None
 
+async def update_report_fields(report_id: str, fields: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    if is_mongo_available():
+        await mongodb.reports.update_one({"_id": report_id}, {"$set": fields})
+        return await get_report_by_id(report_id)
+    else:
+        if report_id in in_memory_db.reports:
+            in_memory_db.reports[report_id].update(fields)
+            return in_memory_db.reports[report_id]
+        return None
+
 async def create_training_record(record: Dict[str, Any]) -> Dict[str, Any]:
     rec_id = str(uuid.uuid4())
     record["_id"] = rec_id

@@ -14,24 +14,42 @@ interface Question {
 
 interface QuizModalProps {
   reportId: string;
-  quizTitle: string;
-  questions: Question[];
+  quizTitle?: string;
+  incidentText?: string;
+  questions?: Question[];
   onClose: () => void;
   onCompleted?: () => void;
 }
 
 export const QuizModal: React.FC<QuizModalProps> = ({
   reportId,
-  quizTitle,
-  questions,
+  quizTitle = 'Safety Assessment Refresher MCQ',
+  incidentText,
+  questions: initialQuestions,
   onClose,
   onCompleted
 }) => {
+  const [questions, setQuestions] = useState<Question[]>(initialQuestions || []);
+  const [loadingQuestions, setLoadingQuestions] = useState<boolean>(!initialQuestions || initialQuestions.length === 0);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [selectedAnswers, setSelectedAnswers] = useState<{ [key: number]: number }>({});
   const [submitted, setSubmitted] = useState(false);
   const [loading, setLoading] = useState(false);
   const [score, setScore] = useState(0);
+
+  React.useEffect(() => {
+    if ((!initialQuestions || initialQuestions.length === 0) && reportId) {
+      setLoadingQuestions(true);
+      quizApi.generate(reportId)
+        .then((res) => {
+          if (res && res.questions) {
+            setQuestions(res.questions);
+          }
+        })
+        .catch((e) => console.error('Failed to generate quiz:', e))
+        .finally(() => setLoadingQuestions(false));
+    }
+  }, [reportId, initialQuestions]);
 
   const currentQ = questions[currentIndex];
 

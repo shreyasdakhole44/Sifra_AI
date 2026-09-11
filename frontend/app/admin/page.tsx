@@ -5,6 +5,8 @@ import { useAuth } from '@/lib/authContext';
 import { adminApi, reportsApi } from '@/lib/api';
 import { GeoHeatmap } from '@/components/GeoHeatmap';
 import { AnalyticsCharts } from '@/components/AnalyticsCharts';
+import { TrustReportView } from '@/components/TrustReportView';
+import { DropzoneUpload } from '@/components/DropzoneUpload';
 import { 
   ShieldAlert, 
   CheckCircle2, 
@@ -21,7 +23,10 @@ import {
   ListTodo,
   X,
   User,
-  Clock
+  Clock,
+  Layers,
+  Upload,
+  Eye
 } from 'lucide-react';
 import Link from 'next/link';
 
@@ -33,15 +38,37 @@ export default function AdminPage() {
   const [reports, setReports] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const [activeTab, setActiveTab] = useState<'overview' | 'moderation' | 'workers'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'moderation' | 'workers' | 'intake'>('overview');
   const [updatingId, setUpdatingId] = useState<string | null>(null);
 
-  // Modals & Drawers State
+  // Inspection Modal
+  const [selectedReportForView, setSelectedReportForView] = useState<any>(null);
+
+  // Single Report Submission State
+  const [showSingleReportModal, setShowSingleReportModal] = useState(false);
+  const [targetWorkerId, setTargetWorkerId] = useState('OIL-W-101');
+  const [targetSiteId, setTargetSiteId] = useState('OIL-DIGBOI-01');
+  const [reportText, setReportText] = useState('');
+  const [evidenceFiles, setEvidenceFiles] = useState<File[]>([]);
+  const [submittingReport, setSubmittingReport] = useState(false);
+  const [formValidationError, setFormValidationError] = useState('');
+
+  // Batch Report Intake State
+  const [showBatchModal, setShowBatchModal] = useState(false);
+  const [batchRawText, setBatchRawText] = useState(`OIL-W-101 Site: OIL-DIGBOI-01
+Gas surge detected on rig pressure manifold valve. Required immediate emergency isolation.
+
+OIL-W-102 Site: OIL-DULIAJAN-01
+Unsafe ladder placement without safety harness lanyard anchor during height inspection.`);
+  const [submittingBatch, setSubmittingBatch] = useState(false);
+  const [batchResults, setBatchResults] = useState<any[]>([]);
+
+  // Warning / Task / Training Modals
   const [selectedWorkerDetail, setSelectedWorkerDetail] = useState<any>(null);
   const [loadingWorkerDetail, setLoadingWorkerDetail] = useState(false);
 
   const [showWarningModal, setShowWarningModal] = useState(false);
-  const [targetWorkerId, setTargetWorkerId] = useState('');
+  const [warningWorkerId, setWarningWorkerId] = useState('');
   const [warningMessage, setWarningMessage] = useState('');
   const [sendingWarning, setSendingWarning] = useState(false);
 
@@ -73,6 +100,89 @@ export default function AdminPage() {
       console.error('Error loading dashboard data:', e);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleSingleReportSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setFormValidationError('');
+
+    const hasText = reportText.trim().length > 0;
+    const hasFiles = evidenceFiles.length > 0;
+
+    if (!hasText && !hasFiles) {
+      setFormValidationError('Add a description, attach at least one evidence file, or both, to submit.');
+      return;
+    }
+
+    setSubmittingReport(true);
+    try {
+      const created = await reportsApi.create({
+        worker_id: targetWorkerId.trim() || 'OIL-W-101',
+        incident_text: reportText.trim(),
+        site_id: targetSiteId,
+        has_files: hasFiles
+      });
+
+      if (hasFiles) {
+        await reportsApi.uploadAttachments(created.id, evidenceFiles);
+      }
+
+      alert(`Near-Miss / Incident Report submitted successfully for Worker ${targetWorkerId}! Quiz & alert dispatched.`);
+      setShowSingleReportModal(false);
+      setReportText('');
+      setEvidenceFiles([]);
+      loadDashboardData();
+    } catch (err: any) {
+      console.error('Failed to submit report:', err);
+      alert(err.response?.data?.detail || 'Error submitting report.');
+    } finally {
+      setSubmittingReport(false);
+    }
+  };
+
+  const handleBatchReportSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!batchRawText.trim()) return;
+
+    setSubmittingBatch(true);
+    try {
+      // Parse multi-worker text entries
+      const pattern = /(OIL-W-\d+)/g;
+      const matches = batchRawText.split(pattern);
+      
+      const entries: Array<{ worker_id: string; site_id: string; incident_text: string }> = [];
+      let i = 1;
+      while (i < matches.length) {
+        const wId = matches[i].trim();
+        const text = matches[i+1] ? matches[i+1].trim() : '';
+        if (wId) {
+          entries.push({
+            worker_id: wId,
+            site_id: text.toUpperCase().includes('DIGBOI') ? 'OIL-DIGBOI-01' : 'OIL-DULIAJAN-01',
+            incident_text: text || `Batch near-miss report for ${wId}`
+          });
+        }
+        i += 2;
+      }
+
+      if (entries.length === 0) {
+        entries.push({
+          worker_id: 'OIL-W-101',
+          site_id: 'OIL-DIGBOI-01',
+          incident_text: batchRawText.trim()
+        });
+      }
+
+      const results = await reportsApi.createBatch(entries);
+      setBatchResults(results);
+      alert(`Batch processing complete! ${results.length} worker report(s) created & quizzes dispatched.`);
+      loadDashboardData();
+    } catch (err: any) {
+      console.error('Batch intake error:', err);
+      alert('Error processing batch intake: ' + (err.response?.data?.detail || err.message));
+    } finally {
+      setSubmittingBatch(false);
     }
   };
 
@@ -110,55 +220,19 @@ export default function AdminPage() {
 
   const handleSendWarningSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!targetWorkerId || !warningMessage) return;
+    if (!warningWorkerId || !warningMessage) return;
 
     setSendingWarning(true);
     try {
-      await adminApi.sendWarning(targetWorkerId, warningMessage, true);
-      alert(`SMS Formal Warning dispatched to Worker ID: ${targetWorkerId}`);
+      await adminApi.sendWarning(warningWorkerId, warningMessage, true);
+      alert(`SMS Formal Warning dispatched to Worker ID: ${warningWorkerId}`);
       setShowWarningModal(false);
       setWarningMessage('');
       loadDashboardData();
     } catch (e) {
-      alert('Error sending SMS warning.');
+      alert('Error sending warning.');
     } finally {
       setSendingWarning(false);
-    }
-  };
-
-  const handleAssignTaskSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!targetWorkerId || !taskTitle) return;
-
-    setAssigningTask(true);
-    try {
-      await adminApi.assignTask(targetWorkerId, taskTitle, taskDesc);
-      alert(`Safety task assigned to Worker ID: ${targetWorkerId}`);
-      setShowAssignTaskModal(false);
-      setTaskTitle('');
-      setTaskDesc('');
-      loadDashboardData();
-    } catch (e) {
-      alert('Error assigning task.');
-    } finally {
-      setAssigningTask(false);
-    }
-  };
-
-  const handleAssignTrainingSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!targetWorkerId) return;
-
-    setAssigningTraining(true);
-    try {
-      await adminApi.assignTraining(targetWorkerId, trainingTitle);
-      alert(`Safety training assigned to Worker ID: ${targetWorkerId}`);
-      setShowAssignTrainingModal(false);
-      loadDashboardData();
-    } catch (e) {
-      alert('Error assigning training.');
-    } finally {
-      setAssigningTraining(false);
     }
   };
 
@@ -167,89 +241,87 @@ export default function AdminPage() {
       <div className="flex items-center justify-center min-h-[60vh]">
         <div className="flex items-center space-x-3 text-slate-500 font-medium text-xs">
           <div className="w-4 h-4 border-2 border-teal-700 border-t-transparent rounded-full animate-spin" />
-          <span>Loading HSC Officer Executive Analytics...</span>
+          <span>Loading HSC Control Room & Executive Dashboard...</span>
         </div>
       </div>
     );
   }
 
-  const unassignedCount = reports.filter(r => r.status !== 'Resolved').length;
+  const unassignedCount = reports.filter(r => r.status === 'Pending Review').length;
 
   return (
     <div className="space-y-6">
-      
-      {/* Page Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2 border-b border-slate-200">
+      {/* Header Banner */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-200">
         <div>
           <div className="flex items-center space-x-2">
-            <h1 className="text-xl font-bold text-slate-900 tracking-tight">HSC Executive Safety & Compliance Dashboard</h1>
-            <span className="bg-slate-100 text-slate-700 text-[11px] font-semibold px-2 py-0.5 rounded border border-slate-200">
-              HSC Officer Control Room
+            <h1 className="text-xl font-bold text-slate-900 tracking-tight">HSC Officer Control Room</h1>
+            <span className="bg-teal-50 text-teal-800 text-[11px] font-mono font-bold px-2 py-0.5 rounded border border-teal-200">
+              Oil India Limited Executive Command
             </span>
           </div>
           <p className="text-xs text-slate-500 mt-1">
-            Real-time geospatial SIF fatality risk tracking, barrier failure breakdown, SMS warnings dispatch, and moderation queue.
+            File worker near-miss reports, run batch PDF intakes, view dynamic Leaflet heatmaps, and audit AI Trust Reports.
           </p>
         </div>
 
-        <div className="flex items-center space-x-2">
+        <div className="flex items-center space-x-3">
           <button
-            onClick={() => {
-              setTargetWorkerId(workers[0]?.worker_id || 'OIL-W-101');
-              setShowWarningModal(true);
-            }}
-            className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-rose-600 text-white hover:bg-rose-700 rounded-lg text-xs font-semibold shadow-sm transition-all"
+            onClick={() => setShowBatchModal(true)}
+            className="px-3.5 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-lg text-xs font-semibold shadow-xs transition-colors flex items-center space-x-1.5"
           >
-            <Send className="w-3.5 h-3.5" />
-            <span>Send SMS Warning</span>
+            <Upload className="w-3.5 h-3.5" />
+            <span>Batch PDF Intake</span>
           </button>
 
           <button
-            onClick={loadDashboardData}
-            className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 rounded-lg text-xs font-semibold shadow-sm transition-all"
+            onClick={() => setShowSingleReportModal(true)}
+            className="px-3.5 py-2 bg-teal-700 hover:bg-teal-800 text-white rounded-lg text-xs font-semibold shadow-xs transition-colors flex items-center space-x-1.5"
           >
-            <RefreshCw className="w-3.5 h-3.5" />
-            <span>Refresh</span>
+            <Plus className="w-4 h-4" />
+            <span>File Worker Incident Report</span>
           </button>
         </div>
       </div>
 
-      {/* 4 KPI Metric Cards */}
+      {/* KPI Cards Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="bg-white rounded-lg p-4 border border-slate-200 shadow-sm">
+        <div className="bg-white p-4 rounded-lg border border-slate-200 shadow-xs">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Total Reports</span>
-            <FileText className="w-4 h-4 text-slate-400" />
+            <span className="text-xs font-semibold text-slate-500">Total Logged Reports</span>
+            <FileText className="w-4 h-4 text-teal-700" />
           </div>
-          <div className="text-2xl font-bold text-slate-900 mt-2 font-mono">{stats?.total_incidents || 0}</div>
-          <div className="text-[11px] text-slate-500 mt-1">Logged across all OIL installations</div>
+          <div className="text-2xl font-bold text-slate-900 mt-2 font-mono">{reports.length}</div>
+          <div className="text-[11px] text-slate-500 mt-1">Audit register entries</div>
         </div>
 
-        <div className="bg-white rounded-lg p-4 border border-slate-200 shadow-sm">
+        <div className="bg-white p-4 rounded-lg border border-slate-200 shadow-xs">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">High SIF Flags</span>
-            <ShieldAlert className="w-4 h-4 text-rose-500" />
+            <span className="text-xs font-semibold text-slate-500">High SIF Flags (&gt;50%)</span>
+            <ShieldAlert className="w-4 h-4 text-rose-600" />
           </div>
-          <div className="text-2xl font-bold text-rose-600 mt-2 font-mono">{stats?.high_risk_count || 0}</div>
-          <div className="text-[11px] text-rose-600 font-medium mt-1">&gt;50% Fatality Probability</div>
+          <div className="text-2xl font-bold text-rose-600 mt-2 font-mono">
+            {reports.filter(r => r.risk_level === 'HIGH').length}
+          </div>
+          <div className="text-[11px] text-slate-500 mt-1">Immediate action required</div>
         </div>
 
-        <div className="bg-white rounded-lg p-4 border border-slate-200 shadow-sm">
+        <div className="bg-white p-4 rounded-lg border border-slate-200 shadow-xs">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Resolved Audits</span>
-            <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+            <span className="text-xs font-semibold text-slate-500">Active Field Workers</span>
+            <Users className="w-4 h-4 text-indigo-600" />
           </div>
-          <div className="text-2xl font-bold text-emerald-600 mt-2 font-mono">{stats?.resolved_count || 0}</div>
-          <div className="text-[11px] text-emerald-600 font-medium mt-1">Closed HSE audits</div>
+          <div className="text-2xl font-bold text-slate-900 mt-2 font-mono">{workers.length}</div>
+          <div className="text-[11px] text-slate-500 mt-1">Tracked across 5 sites</div>
         </div>
 
-        <div className="bg-white rounded-lg p-4 border border-slate-200 shadow-sm">
+        <div className="bg-white p-4 rounded-lg border border-slate-200 shadow-xs">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Active Alerts</span>
-            <Activity className="w-4 h-4 text-amber-500" />
+            <span className="text-xs font-semibold text-slate-500">Alert Dispatches</span>
+            <Activity className="w-4 h-4 text-amber-600" />
           </div>
           <div className="text-2xl font-bold text-amber-600 mt-2 font-mono">{stats?.active_alerts_count || 0}</div>
-          <div className="text-[11px] text-slate-500 mt-1">Twilio/Grid dispatches</div>
+          <div className="text-[11px] text-slate-500 mt-1">Twilio SMS / Email logs</div>
         </div>
       </div>
 
@@ -263,7 +335,7 @@ export default function AdminPage() {
               : 'border-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-50'
           }`}
         >
-          Interactive Leaflet.heat Map & Analytics
+          Interactive Leaflet Risk Map & Analytics
         </button>
         <button
           onClick={() => setActiveTab('moderation')}
@@ -306,11 +378,11 @@ export default function AdminPage() {
 
       {/* TAB 2: MODERATION QUEUE */}
       {activeTab === 'moderation' && (
-        <div className="bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden">
+        <div className="bg-white rounded-lg border border-slate-200 shadow-xs overflow-hidden">
           <div className="p-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
             <div>
               <h3 className="text-sm font-bold text-slate-900">Incident Review & Corrective Action Queue</h3>
-              <p className="text-xs text-slate-500">Review SIF predictions, download PDF Trust Reports, and set HSE investigation states.</p>
+              <p className="text-xs text-slate-500">Review SIF predictions, inspect in-app Trust Reports, download ReportLab PDFs, and set status.</p>
             </div>
             <div className="text-xs text-slate-500 font-mono">
               Showing {reports.length} total entries
@@ -326,7 +398,7 @@ export default function AdminPage() {
                   <th className="p-3">SIF Risk Level</th>
                   <th className="p-3">Date Logged</th>
                   <th className="p-3">Current Status</th>
-                  <th className="p-3 text-right">Actions & PDF Download</th>
+                  <th className="p-3 text-right">Actions & Inspection</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200">
@@ -371,34 +443,21 @@ export default function AdminPage() {
                         </span>
                       </td>
                       <td className="p-3 text-right space-x-2">
-                        <select
-                          disabled={updatingId === rep.id}
-                          value={rep.status}
-                          onChange={(e) => handleUpdateStatus(rep.id, e.target.value)}
-                          className="px-2 py-1 bg-white border border-slate-300 rounded text-xs font-medium text-slate-800 focus:outline-none focus:border-teal-700 shadow-sm"
+                        <button
+                          onClick={() => setSelectedReportForView(rep)}
+                          className="inline-flex items-center space-x-1 px-2 py-1 bg-teal-50 border border-teal-200 text-teal-800 hover:bg-teal-100 rounded text-xs font-semibold transition-colors"
                         >
-                          <option value="Pending Review">Pending Review</option>
-                          <option value="Under Investigation">Under Investigation</option>
-                          <option value="Action Required">Action Required</option>
-                          <option value="Resolved">Resolved</option>
-                        </select>
+                          <Eye className="w-3 h-3" />
+                          <span>Inspect Report</span>
+                        </button>
 
                         <button
                           onClick={() => handleDownloadPdf(rep.id)}
                           className="inline-flex items-center space-x-1 px-2 py-1 bg-slate-100 border border-slate-200 text-slate-700 hover:bg-slate-200 rounded text-xs font-medium transition-colors"
-                          title="Download Real PDF Trust Report"
                         >
                           <Download className="w-3 h-3 text-teal-700" />
                           <span>PDF</span>
                         </button>
-
-                        <Link
-                          href={`/reports/${rep.id}`}
-                          className="inline-flex items-center space-x-1 px-2.5 py-1 bg-teal-700 text-white rounded text-xs font-medium hover:bg-teal-800 transition-colors"
-                        >
-                          <span>Inspect</span>
-                          <ExternalLink className="w-3 h-3" />
-                        </Link>
                       </td>
                     </tr>
                   ))
@@ -409,16 +468,16 @@ export default function AdminPage() {
         </div>
       )}
 
-      {/* TAB 3: WORKER SAFETY REGISTER & DEEP LOOKUP */}
+      {/* TAB 3: WORKER SAFETY REGISTER */}
       {activeTab === 'workers' && (
-        <div className="bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden">
+        <div className="bg-white rounded-lg border border-slate-200 shadow-xs overflow-hidden">
           <div className="p-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
             <div>
-              <h3 className="text-sm font-bold text-slate-900">Worker Safety Register & Status Check</h3>
-              <p className="text-xs text-slate-500">Persistent unique worker IDs, assigned safety ratings, and lookup tool.</p>
+              <h3 className="text-sm font-bold text-slate-900">Worker Safety & Compliance Register</h3>
+              <p className="text-xs text-slate-500">Perform deep worker status lookups, dispatch warnings, and assign corrective tasks.</p>
             </div>
             <div className="text-xs text-slate-500 font-mono">
-              {workers.length} Personnel Registered
+              {workers.length} Tracked Workers
             </div>
           </div>
 
@@ -426,46 +485,40 @@ export default function AdminPage() {
             <table className="w-full text-left text-xs border-collapse">
               <thead>
                 <tr className="bg-slate-100/70 text-slate-600 font-semibold border-b border-slate-200">
-                  <th className="p-3">Persistent Worker ID</th>
-                  <th className="p-3">Worker Name</th>
-                  <th className="p-3">Status</th>
+                  <th className="p-3">Worker ID & Name</th>
                   <th className="p-3">Assigned Site</th>
-                  <th className="p-3">Incidents Logged</th>
-                  <th className="p-3">Avg Risk Prob</th>
+                  <th className="p-3">Status</th>
                   <th className="p-3 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200">
                 {workers.map((w) => (
-                  <tr key={w.worker_id} className="hover:bg-slate-50/80 transition-colors">
-                    <td className="p-3 font-mono font-bold text-teal-800">{w.worker_id}</td>
-                    <td className="p-3 font-semibold text-slate-900">{w.name}</td>
+                  <tr key={w.id} className="hover:bg-slate-50/80 transition-colors">
                     <td className="p-3">
-                      <span className="bg-emerald-50 text-emerald-700 text-[10px] font-bold px-2 py-0.5 rounded border border-emerald-200">
+                      <div className="font-bold text-slate-900">{w.name}</div>
+                      <div className="text-[11px] font-mono text-slate-500">{w.worker_id || w.id}</div>
+                    </td>
+                    <td className="p-3 font-mono text-slate-700">{w.site_id || 'OIL-DIGBOI-01'}</td>
+                    <td className="p-3">
+                      <span className="bg-emerald-50 text-emerald-700 border border-emerald-200 px-2 py-0.5 rounded text-[11px] font-semibold">
                         {w.status || 'Active'}
                       </span>
                     </td>
-                    <td className="p-3 text-slate-700">{w.site_id}</td>
-                    <td className="p-3 font-mono font-medium text-slate-800">{w.total_incidents}</td>
-                    <td className="p-3 font-mono text-slate-700">{w.avg_risk_probability}%</td>
                     <td className="p-3 text-right space-x-2">
                       <button
-                        onClick={() => handleOpenWorkerDetail(w.worker_id)}
-                        className="inline-flex items-center space-x-1 px-2.5 py-1 bg-slate-100 border border-slate-200 text-slate-700 hover:bg-slate-200 rounded text-xs font-semibold transition-colors"
-                      >
-                        <User className="w-3 h-3 text-teal-700" />
-                        <span>Status Check</span>
-                      </button>
-
-                      <button
                         onClick={() => {
-                          setTargetWorkerId(w.worker_id);
+                          setWarningWorkerId(w.worker_id || w.id);
                           setShowWarningModal(true);
                         }}
-                        className="inline-flex items-center space-x-1 px-2.5 py-1 bg-rose-50 border border-rose-200 text-rose-700 hover:bg-rose-100 rounded text-xs font-semibold transition-colors"
+                        className="px-2.5 py-1 bg-amber-50 border border-amber-200 text-amber-800 hover:bg-amber-100 rounded text-xs font-semibold transition-colors"
                       >
-                        <Send className="w-3 h-3" />
-                        <span>SMS Warning</span>
+                        Warning
+                      </button>
+                      <button
+                        onClick={() => handleOpenWorkerDetail(w.worker_id || w.id)}
+                        className="px-2.5 py-1 bg-teal-700 text-white rounded text-xs font-semibold hover:bg-teal-800 transition-colors"
+                      >
+                        Deep Lookup
                       </button>
                     </td>
                   </tr>
@@ -476,275 +529,243 @@ export default function AdminPage() {
         </div>
       )}
 
-      {/* WORKER STATUS CHECK DRAWER / MODAL */}
-      {selectedWorkerDetail && (
-        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex justify-end">
-          <div className="w-full max-w-md bg-white h-full shadow-2xl p-6 overflow-y-auto space-y-6 flex flex-col justify-between">
-            <div className="space-y-4">
-              <div className="flex items-center justify-between pb-3 border-b border-slate-200">
-                <div className="flex items-center space-x-2">
-                  <User className="w-5 h-5 text-teal-700" />
-                  <h3 className="font-bold text-slate-900 text-base">Worker Status Detail</h3>
-                </div>
-                <button
-                  onClick={() => setSelectedWorkerDetail(null)}
-                  className="p-1 rounded hover:bg-slate-100 text-slate-400 hover:text-slate-700"
-                >
-                  <X className="w-5 h-5" />
-                </button>
+      {/* SINGLE REPORT FILE MODAL */}
+      {showSingleReportModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4">
+          <div className="bg-white rounded-lg border border-slate-200 shadow-2xl max-w-xl w-full overflow-hidden">
+            <div className="p-4 bg-slate-900 text-white flex items-center justify-between">
+              <div className="flex items-center space-x-2">
+                <FileText className="w-4 h-4 text-teal-400" />
+                <h3 className="font-bold text-sm">File Worker Incident / Near-Miss Report</h3>
               </div>
-
-              {/* Worker Profile Card */}
-              <div className="bg-slate-50 p-4 rounded-lg border border-slate-200 space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="font-mono text-xs font-bold bg-slate-200 text-slate-800 px-2 py-0.5 rounded">
-                    ID: {selectedWorkerDetail.worker_id}
-                  </span>
-                  <span className="text-xs font-semibold px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200">
-                    {selectedWorkerDetail.status}
-                  </span>
-                </div>
-
-                <h4 className="text-base font-bold text-slate-900">{selectedWorkerDetail.name}</h4>
-                <p className="text-xs text-slate-500 font-mono">{selectedWorkerDetail.email} • {selectedWorkerDetail.site_id}</p>
-              </div>
-
-              {/* Aggregated Stats Grid */}
-              <div className="grid grid-cols-2 gap-3 text-xs">
-                <div className="p-3 bg-white border border-slate-200 rounded text-center">
-                  <span className="text-[10px] text-slate-500 uppercase font-semibold block">Training Completion</span>
-                  <span className="text-lg font-bold text-teal-700 font-mono mt-0.5">{selectedWorkerDetail.training_completion_pct}%</span>
-                </div>
-                <div className="p-3 bg-white border border-slate-200 rounded text-center">
-                  <span className="text-[10px] text-slate-500 uppercase font-semibold block">Avg Risk Probability</span>
-                  <span className="text-lg font-bold text-rose-600 font-mono mt-0.5">{selectedWorkerDetail.avg_risk_probability}%</span>
-                </div>
-              </div>
-
-              {/* Open Warnings List */}
-              <div>
-                <h4 className="text-xs font-bold text-slate-900 uppercase tracking-wider mb-2">Issued Warnings ({selectedWorkerDetail.open_warnings_count})</h4>
-                {selectedWorkerDetail.warnings?.length === 0 ? (
-                  <p className="text-xs text-slate-400 italic">No formal warnings recorded.</p>
-                ) : (
-                  <div className="space-y-2 max-h-36 overflow-y-auto">
-                    {selectedWorkerDetail.warnings?.map((w: any) => (
-                      <div key={w.id} className="p-2.5 bg-rose-50 rounded border border-rose-200 text-xs">
-                        <p className="font-semibold text-rose-900">{w.message}</p>
-                        <span className="text-[10px] font-mono text-slate-400 mt-1 block">Issued by: {w.issued_by} • {new Date(w.timestamp).toLocaleDateString()}</span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
+              <button onClick={() => setShowSingleReportModal(false)} className="text-slate-400 hover:text-white">
+                <X className="w-4 h-4" />
+              </button>
             </div>
 
-            <div className="pt-4 border-t border-slate-200 flex space-x-2">
-              <button
-                onClick={() => {
-                  setTargetWorkerId(selectedWorkerDetail.worker_id);
-                  setShowAssignTaskModal(true);
-                }}
-                className="flex-1 py-2 bg-slate-100 text-slate-800 font-semibold rounded text-xs hover:bg-slate-200"
-              >
-                Assign Task
+            <form onSubmit={handleSingleReportSubmit} className="p-5 space-y-4">
+              {formValidationError && (
+                <div className="p-3 bg-rose-50 border border-rose-200 text-rose-700 rounded text-xs font-semibold flex items-center space-x-2">
+                  <AlertTriangle className="w-4 h-4 shrink-0 text-rose-600" />
+                  <span>{formValidationError}</span>
+                </div>
+              )}
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Target Worker ID</label>
+                  <input
+                    type="text"
+                    required
+                    value={targetWorkerId}
+                    onChange={(e) => setTargetWorkerId(e.target.value)}
+                    placeholder="e.g. OIL-W-101"
+                    className="w-full px-3 py-2 text-xs font-mono border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-700"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Operational Site ID</label>
+                  <select
+                    value={targetSiteId}
+                    onChange={(e) => setTargetSiteId(e.target.value)}
+                    className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-700"
+                  >
+                    <option value="OIL-DIGBOI-01">OIL-DIGBOI-01 (Refinery & Field)</option>
+                    <option value="OIL-DULIAJAN-01">OIL-DULIAJAN-01 (HQ Rig Site)</option>
+                    <option value="OIL-MORAN-01">OIL-MORAN-01 (Production Site)</option>
+                    <option value="OIL-JORHAT-01">OIL-JORHAT-01 (Exploration)</option>
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Incident Narrative / Observation Description
+                </label>
+                <textarea
+                  rows={4}
+                  value={reportText}
+                  onChange={(e) => {
+                    setReportText(e.target.value);
+                    if (formValidationError) setFormValidationError('');
+                  }}
+                  placeholder="Describe observed unsafe acts, line pressure surge, gas leaks, or missing LOTO locks..."
+                  className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-700"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Attach Evidence Files (Images, PDFs, Voice Notes)
+                </label>
+                <DropzoneUpload
+                  onFilesSelected={(files) => {
+                    setEvidenceFiles(files);
+                    if (formValidationError) setFormValidationError('');
+                  }}
+                />
+              </div>
+
+              <div className="flex items-center justify-end space-x-2 pt-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setShowSingleReportModal(false)}
+                  className="px-4 py-2 bg-white border border-slate-200 text-slate-700 rounded-lg text-xs font-semibold hover:bg-slate-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={submittingReport}
+                  className="px-4 py-2 bg-teal-700 text-white rounded-lg text-xs font-semibold hover:bg-teal-800 shadow-xs flex items-center space-x-1.5 disabled:opacity-50"
+                >
+                  <Send className="w-3.5 h-3.5" />
+                  <span>{submittingReport ? 'Running AI Pipeline...' : 'Submit Report & Dispatch Quiz'}</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* BATCH PDF INTAKE MODAL */}
+      {showBatchModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4">
+          <div className="bg-white rounded-lg border border-slate-200 shadow-2xl max-w-2xl w-full overflow-hidden">
+            <div className="p-4 bg-slate-900 text-white flex items-center justify-between">
+              <div className="flex items-center space-x-2">
+                <Upload className="w-4 h-4 text-teal-400" />
+                <h3 className="font-bold text-sm">Batch PDF Intake — Multi-Worker Processing</h3>
+              </div>
+              <button onClick={() => setShowBatchModal(false)} className="text-slate-400 hover:text-white">
+                <X className="w-4 h-4" />
               </button>
-              <button
-                onClick={() => {
-                  setTargetWorkerId(selectedWorkerDetail.worker_id);
-                  setShowAssignTrainingModal(true);
-                }}
-                className="flex-1 py-2 bg-teal-700 text-white font-semibold rounded text-xs hover:bg-teal-800"
-              >
-                Assign Training
+            </div>
+
+            <form onSubmit={handleBatchReportSubmit} className="p-5 space-y-4">
+              <p className="text-xs text-slate-600 leading-relaxed">
+                Upload or paste a single batch report containing 5–10 worker entries. Each entry must start with a valid Worker ID (e.g. <code className="font-mono text-teal-700 bg-teal-50 px-1 py-0.5 rounded">OIL-W-101</code>). The AI pipeline will generate individual Trust Reports and dispatch worker quizzes automatically.
+              </p>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">Batch Text / PDF Content Entries</label>
+                <textarea
+                  rows={8}
+                  value={batchRawText}
+                  onChange={(e) => setBatchRawText(e.target.value)}
+                  className="w-full px-3 py-2 text-xs font-mono border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-700"
+                />
+              </div>
+
+              <div className="flex items-center justify-end space-x-2 pt-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setShowBatchModal(false)}
+                  className="px-4 py-2 bg-white border border-slate-200 text-slate-700 rounded-lg text-xs font-semibold hover:bg-slate-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={submittingBatch}
+                  className="px-4 py-2 bg-slate-900 text-white rounded-lg text-xs font-semibold hover:bg-slate-800 shadow-xs flex items-center space-x-1.5 disabled:opacity-50"
+                >
+                  <Upload className="w-3.5 h-3.5 text-teal-400" />
+                  <span>{submittingBatch ? 'Processing Batch Entries...' : 'Process Batch Reports Now'}</span>
+                </button>
+              </div>
+            </form>
+
+            {batchResults.length > 0 && (
+              <div className="p-4 bg-slate-50 border-t border-slate-200 max-h-60 overflow-y-auto space-y-2">
+                <h4 className="font-bold text-xs text-slate-900">Batch Processing Summary Results ({batchResults.length})</h4>
+                <div className="space-y-1">
+                  {batchResults.map((r, i) => (
+                    <div key={i} className="p-2 bg-white rounded border border-slate-200 text-xs flex items-center justify-between">
+                      <span className="font-mono font-bold text-slate-800">{r.worker_id}</span>
+                      <span className="font-semibold text-slate-700">{r.risk_level} RISK ({r.ml_probability?.toFixed(0)}%)</span>
+                      <span className="text-[10px] text-emerald-700 font-mono">Quiz Dispatched</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* INSPECTION TRUST REPORT MODAL */}
+      {selectedReportForView && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4 overflow-y-auto">
+          <div className="bg-white rounded-lg border border-slate-200 shadow-2xl max-w-4xl w-full my-8 overflow-hidden">
+            <div className="p-3 bg-slate-900 text-white flex items-center justify-between border-b border-slate-800">
+              <span className="font-bold text-xs flex items-center space-x-2">
+                <Eye className="w-4 h-4 text-teal-400" />
+                <span>Executive Trust Report Visual Inspection</span>
+              </span>
+              <button onClick={() => setSelectedReportForView(null)} className="text-slate-400 hover:text-white px-2 py-1 text-xs font-bold">
+                ✕ Close
               </button>
+            </div>
+            <div className="p-4 max-h-[80vh] overflow-y-auto">
+              <TrustReportView report={selectedReportForView} />
             </div>
           </div>
         </div>
       )}
 
-      {/* SMS WARNING DISPATCH MODAL */}
+      {/* SMS WARNING MODAL */}
       {showWarningModal && (
-        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="w-full max-w-md bg-white rounded-lg p-6 shadow-xl border border-slate-200 space-y-4">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-200">
-              <div className="flex items-center space-x-2">
-                <Send className="w-4 h-4 text-rose-600" />
-                <h3 className="font-bold text-slate-900 text-sm">Dispatch Official SMS Warning</h3>
-              </div>
-              <button onClick={() => setShowWarningModal(false)} className="text-slate-400 hover:text-slate-600">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-xs p-4">
+          <div className="bg-white rounded-lg border border-slate-200 shadow-xl max-w-md w-full overflow-hidden">
+            <div className="p-4 bg-slate-900 text-white flex items-center justify-between">
+              <span className="font-bold text-sm">Dispatch Officer Safety Warning</span>
+              <button onClick={() => setShowWarningModal(false)} className="text-slate-400 hover:text-white">
                 <X className="w-4 h-4" />
               </button>
             </div>
-
-            <form onSubmit={handleSendWarningSubmit} className="space-y-3">
+            <form onSubmit={handleSendWarningSubmit} className="p-5 space-y-4">
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">Target Worker ID</label>
                 <input
                   type="text"
                   required
-                  value={targetWorkerId}
-                  onChange={(e) => setTargetWorkerId(e.target.value)}
-                  className="w-full p-2 bg-slate-50 border border-slate-300 rounded text-xs font-mono text-slate-900 focus:outline-none focus:border-teal-700"
+                  value={warningWorkerId}
+                  onChange={(e) => setWarningWorkerId(e.target.value)}
+                  className="w-full px-3 py-2 text-xs font-mono border border-slate-200 rounded-lg"
                 />
               </div>
-
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">Warning Message (Twilio SMS)</label>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">Warning Text</label>
                 <textarea
                   required
-                  rows={3}
+                  rows={4}
                   value={warningMessage}
                   onChange={(e) => setWarningMessage(e.target.value)}
-                  placeholder="e.g. Mandatory PPE Notice: Helmet chin strap unfastened near Drill Rig #3. Correct immediately."
-                  className="w-full p-2 bg-slate-50 border border-slate-300 rounded text-xs text-slate-900 focus:outline-none focus:border-teal-700"
+                  placeholder="Official HSE safety warning message..."
+                  className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg"
                 />
               </div>
-
-              <div className="pt-2 flex justify-end space-x-2">
+              <div className="flex items-center justify-end space-x-2 pt-2 border-t border-slate-100">
                 <button
                   type="button"
                   onClick={() => setShowWarningModal(false)}
-                  className="px-3 py-1.5 bg-slate-100 text-slate-700 rounded text-xs font-semibold hover:bg-slate-200"
+                  className="px-4 py-2 bg-white border border-slate-200 text-slate-700 rounded-lg text-xs font-semibold"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={sendingWarning}
-                  className="px-4 py-1.5 bg-rose-600 text-white rounded text-xs font-semibold hover:bg-rose-700 disabled:opacity-50"
+                  className="px-4 py-2 bg-amber-600 text-white rounded-lg text-xs font-semibold hover:bg-amber-700"
                 >
-                  {sendingWarning ? 'Sending...' : 'Dispatch SMS Warning'}
+                  {sendingWarning ? 'Dispatching...' : 'Send SMS Warning'}
                 </button>
               </div>
             </form>
           </div>
         </div>
       )}
-
-      {/* ASSIGN TASK MODAL */}
-      {showAssignTaskModal && (
-        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="w-full max-w-md bg-white rounded-lg p-6 shadow-xl border border-slate-200 space-y-4">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-200">
-              <h3 className="font-bold text-slate-900 text-sm">Assign Corrective Safety Task</h3>
-              <button onClick={() => setShowAssignTaskModal(false)} className="text-slate-400 hover:text-slate-600">
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <form onSubmit={handleAssignTaskSubmit} className="space-y-3">
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">Worker ID</label>
-                <input
-                  type="text"
-                  disabled
-                  value={targetWorkerId}
-                  className="w-full p-2 bg-slate-100 border border-slate-200 rounded text-xs font-mono text-slate-800"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">Task Title</label>
-                <input
-                  type="text"
-                  required
-                  value={taskTitle}
-                  onChange={(e) => setTaskTitle(e.target.value)}
-                  placeholder="e.g. Inspect Pressure Relief Valve V-204"
-                  className="w-full p-2 bg-slate-50 border border-slate-300 rounded text-xs text-slate-900 focus:outline-none focus:border-teal-700"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">Task Instructions</label>
-                <textarea
-                  rows={2}
-                  value={taskDesc}
-                  onChange={(e) => setTaskDesc(e.target.value)}
-                  placeholder="Perform physical inspection and record pressure gauge reading."
-                  className="w-full p-2 bg-slate-50 border border-slate-300 rounded text-xs text-slate-900 focus:outline-none focus:border-teal-700"
-                />
-              </div>
-
-              <div className="pt-2 flex justify-end space-x-2">
-                <button
-                  type="button"
-                  onClick={() => setShowAssignTaskModal(false)}
-                  className="px-3 py-1.5 bg-slate-100 text-slate-700 rounded text-xs font-semibold"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={assigningTask}
-                  className="px-4 py-1.5 bg-teal-700 text-white rounded text-xs font-semibold hover:bg-teal-800 disabled:opacity-50"
-                >
-                  {assigningTask ? 'Assigning...' : 'Assign Task'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* ASSIGN TRAINING MODAL */}
-      {showAssignTrainingModal && (
-        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="w-full max-w-md bg-white rounded-lg p-6 shadow-xl border border-slate-200 space-y-4">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-200">
-              <h3 className="font-bold text-slate-900 text-sm">Assign Mandatory Safety Training</h3>
-              <button onClick={() => setShowAssignTrainingModal(false)} className="text-slate-400 hover:text-slate-600">
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <form onSubmit={handleAssignTrainingSubmit} className="space-y-3">
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">Worker ID</label>
-                <input
-                  type="text"
-                  disabled
-                  value={targetWorkerId}
-                  className="w-full p-2 bg-slate-100 border border-slate-200 rounded text-xs font-mono text-slate-800"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">Select Training Course</label>
-                <select
-                  value={trainingTitle}
-                  onChange={(e) => setTrainingTitle(e.target.value)}
-                  className="w-full p-2 bg-slate-50 border border-slate-300 rounded text-xs font-semibold text-slate-900 focus:outline-none focus:border-teal-700"
-                >
-                  <option value="IOGP Life Saving Rules Refresher">IOGP Life Saving Rules Refresher</option>
-                  <option value="LOTO & Energy Isolation Verification">LOTO & Energy Isolation Verification</option>
-                  <option value="Hot Work & Gas Clearance Safety">Hot Work & Gas Clearance Safety</option>
-                  <option value="Scaffolding & Work at Height Audit">Scaffolding & Work at Height Audit</option>
-                </select>
-              </div>
-
-              <div className="pt-2 flex justify-end space-x-2">
-                <button
-                  type="button"
-                  onClick={() => setShowAssignTrainingModal(false)}
-                  className="px-3 py-1.5 bg-slate-100 text-slate-700 rounded text-xs font-semibold"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={assigningTraining}
-                  className="px-4 py-1.5 bg-teal-700 text-white rounded text-xs font-semibold hover:bg-teal-800 disabled:opacity-50"
-                >
-                  {assigningTraining ? 'Assigning...' : 'Assign Course'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
     </div>
   );
 }

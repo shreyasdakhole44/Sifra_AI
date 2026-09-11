@@ -35,8 +35,30 @@ export const authApi = {
 };
 
 export const reportsApi = {
-  create: async (incident_text: string, establishment_info?: any, site_id?: string) => {
-    const res = await api.post('/reports', { incident_text, establishment_info, site_id });
+  create: async (data: { worker_id?: string; incident_text?: string; establishment_info?: any; site_id?: string; has_files?: boolean }) => {
+    const res = await api.post('/reports', data);
+    return res.data;
+  },
+  createBatch: async (entries: Array<{ worker_id: string; site_id?: string; incident_text?: string }>) => {
+    const res = await api.post('/reports/batch', { entries });
+    return res.data;
+  },
+  uploadAttachments: async (reportId: string, files: File[]) => {
+    const formData = new FormData();
+    files.forEach((file) => {
+      formData.append('files', file);
+    });
+    const token = typeof window !== 'undefined' ? localStorage.getItem('sifra_token') : '';
+    const res = await axios.post(`${API_BASE}/reports/${reportId}/attachments`, formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+        Authorization: `Bearer ${token}`,
+      },
+    });
+    return res.data;
+  },
+  getAttachments: async (reportId: string) => {
+    const res = await api.get(`/reports/${reportId}/attachments`);
     return res.data;
   },
   list: async () => {
@@ -101,15 +123,16 @@ export const adminApi = {
     const res = await api.get(`/admin/workers/${workerId}`);
     return res.data;
   },
-  getAlerts: async () => {
-    const res = await api.get('/admin/alerts');
+  getAlerts: async (channel = 'all', status = 'all') => {
+    const res = await api.get(`/admin/alerts?channel=${channel}&status=${status}`);
     return res.data;
   },
-  sendWarning: async (workerId: string, message: string, smsDispatch = true) => {
+  sendWarning: async (workerId: string, message: string, smsDispatch = true, emailDispatch = true) => {
     const res = await api.post('/admin/warnings/send', {
       worker_id: workerId,
       message,
       sms_dispatch: smsDispatch,
+      email_dispatch: emailDispatch,
     });
     return res.data;
   },
@@ -139,6 +162,10 @@ export const adminApi = {
 export const workerApi = {
   getWarnings: async () => {
     const res = await api.get('/worker/warnings');
+    return res.data;
+  },
+  acknowledgeWarning: async (warningId: string) => {
+    const res = await api.post(`/worker/warnings/${warningId}/acknowledge`);
     return res.data;
   },
   getTasks: async () => {

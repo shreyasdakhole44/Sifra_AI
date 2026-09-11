@@ -8,6 +8,7 @@ from backend.database import (
     create_task, get_worker_locations
 )
 from backend.config import settings
+from backend.notifications import send_worker_alert
 
 router = APIRouter(prefix="/admin", tags=["Admin & HSE Analytics"])
 
@@ -25,7 +26,9 @@ OIL_SITES = [
 class SendWarningRequest(BaseModel):
     worker_id: str
     message: str
-    sms_dispatch: bool = True
+    sms_dispatch: Optional[bool] = True
+    email_dispatch: Optional[bool] = True
+    channel: Optional[str] = "both"
 
 class AssignTrainingRequest(BaseModel):
     worker_id: str
@@ -166,36 +169,24 @@ async def dispatch_worker_warning(
     req: SendWarningRequest,
     current_user: dict = Depends(require_roles(OFFICER_ROLES))
 ):
-    """HSC Officer dispatches an SMS formal warning to a worker."""
-    sms_status = "stubbed"
-    if req.sms_dispatch and settings.TWILIO_ACCOUNT_SID and settings.TWILIO_AUTH_TOKEN:
-        try:
-            from twilio.rest import Client
-            client = Client(settings.TWILIO_ACCOUNT_SID, settings.TWILIO_AUTH_TOKEN)
-            sms_status = "sent"
-        except Exception as e:
-            print(f"Twilio SMS Warning Error: {e}")
-            sms_status = "failed"
+    """HSC Officer dispatches formal warning via SMS / Email to a worker."""
+    channel = req.channel or ("both" if (req.sms_dispatch and req.email_dispatch) else ("sms" if req.sms_dispatch else "email"))
+    dispatch_res = await send_worker_alert(
+        worker_id=req.worker_id,
+        message=req.message,
+        channel=channel
+    )
 
     warning_doc = {
         "worker_id": req.worker_id,
         "issued_by": current_user.get("name", "HSC Lead Officer"),
         "message": req.message,
-        "sms_status": sms_status,
+        "sms_status": dispatch_res.get("sms_status", "skipped"),
+        "email_status": dispatch_res.get("email_status", "skipped"),
         "status": "Delivered"
     }
 
     saved = await create_warning(warning_doc)
-
-    # Also log in global alert dispatches feed
-    await create_alert({
-        "report_id": "HSC-SMS-WARNING",
-        "worker_id": req.worker_id,
-        "type": "sms",
-        "message": f"OFFICIAL HSE WARNING to {req.worker_id}: {req.message}",
-        "status": "sent"
-    })
-
     return saved
 
 @router.post("/training/assign", response_model=Dict[str, Any])
@@ -232,13 +223,19 @@ async def assign_worker_task(
 
 @router.get("/alerts", response_model=List[Dict[str, Any]])
 async def list_all_alerts(
+    channel: Optional[str] = None,
+    status: Optional[str] = None,
     current_user: dict = Depends(get_current_user)
 ):
     role = current_user.get("role", "Worker")
+    filter_q = {}
     if role == "Worker":
-        filter_q = {"worker_id": current_user["id"]}
-    else:
-        filter_q = {}
+        filter_q["worker_id"] = current_user.get("worker_id", current_user.get("id"))
+    
+    if channel and channel != "all":
+        filter_q["channel"] = channel
+    if status and status != "all":
+        filter_q["status"] = status
     
     alerts = await get_alerts(filter_q)
     return alerts

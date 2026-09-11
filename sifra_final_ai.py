@@ -43,6 +43,12 @@ def load_resources():
         with open(model_to_load, "rb") as file:
             ml_model = pickle.load(file)
         print("SIFRA ML Model Loaded Successfully!")
+    
+    try:
+        from rag_hybrid import load_hybrid_rag_resources
+        load_hybrid_rag_resources()
+    except Exception as e:
+        print(f"Warning pre-loading Hybrid RAG resources: {e}")
 
 def predict_fatality(
     employees=100.0,
@@ -156,8 +162,8 @@ Provide the response in this format:
         models_to_try = [
             os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile"),
             "llama-3.1-8b-instant",
-            "llama3-70b-8192",
-            "mixtral-8x7b-32768"
+            "llama-3.2-11b-vision-preview",
+            "llama-3.2-3b-preview"
         ]
         
         for m_name in models_to_try:

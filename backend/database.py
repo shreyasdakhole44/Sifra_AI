@@ -92,12 +92,13 @@ class InMemoryDatabase:
         # Seed initial worker locations for heatmap
         now = datetime.datetime.now(datetime.timezone.utc).isoformat()
         self.worker_locations = [
-            {"worker_id": "OIL-W-101", "lat": 27.3520, "lng": 95.3210, "timestamp": now, "zone": "Duliajan Rig #4", "risk_score": 78.5},
-            {"worker_id": "OIL-W-102", "lat": 27.3535, "lng": 95.3225, "timestamp": now, "zone": "Duliajan Rig #4", "risk_score": 62.0},
-            {"worker_id": "OIL-W-103", "lat": 27.3510, "lng": 95.3195, "timestamp": now, "zone": "Duliajan Station A", "risk_score": 15.0},
-            {"worker_id": "OIL-W-104", "lat": 27.3890, "lng": 95.6310, "timestamp": now, "zone": "Digboi Refinery #1", "risk_score": 84.0},
-            {"worker_id": "OIL-W-105", "lat": 27.3880, "lng": 95.6300, "timestamp": now, "zone": "Digboi Refinery #1", "risk_score": 45.0},
-            {"worker_id": "OIL-W-106", "lat": 27.1820, "lng": 94.9010, "timestamp": now, "zone": "Moran Oil Field B", "risk_score": 20.0},
+            {"worker_id": "OIL-W-101", "lat": 27.3562, "lng": 95.3214, "timestamp": now, "zone": "Duliajan Headquarters Rig Site", "risk_score": 78.5, "last_incident": "Gas surge at manifold"},
+            {"worker_id": "OIL-W-102", "lat": 27.3575, "lng": 95.3230, "timestamp": now, "zone": "Duliajan Headquarters Rig Site", "risk_score": 64.0, "last_incident": "Pressure relief valve audit"},
+            {"worker_id": "OIL-W-103", "lat": 27.3550, "lng": 95.3198, "timestamp": now, "zone": "Duliajan Station A", "risk_score": 18.0, "last_incident": "Standard inspection"},
+            {"worker_id": "OIL-W-104", "lat": 27.3814, "lng": 95.6311, "timestamp": now, "zone": "Digboi Oil Field & Refinery", "risk_score": 84.0, "last_incident": "Missing mechanical LOTO pin"},
+            {"worker_id": "OIL-W-105", "lat": 27.3825, "lng": 95.6325, "timestamp": now, "zone": "Digboi Oil Field & Refinery", "risk_score": 45.0, "last_incident": "Minor electrical clearance"},
+            {"worker_id": "OIL-W-106", "lat": 27.1856, "lng": 94.9213, "timestamp": now, "zone": "Moran Production Site", "risk_score": 22.0, "last_incident": "Routine line maintenance"},
+            {"worker_id": "OIL-W-107", "lat": 27.1870, "lng": 94.9230, "timestamp": now, "zone": "Moran Production Site", "risk_score": 12.0, "last_incident": "General safety audit"},
         ]
 
 db_client: Optional[AsyncIOMotorClient] = None
@@ -162,6 +163,7 @@ async def create_report(report_data: Dict[str, Any]) -> Dict[str, Any]:
     report_id = str(uuid.uuid4())
     report_data["_id"] = report_id
     report_data["id"] = report_id
+    report_data["attachments"] = report_data.get("attachments", [])
     report_data["timestamp"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
     
     if is_mongo_available():
@@ -196,6 +198,23 @@ async def get_report_by_id(report_id: str) -> Optional[Dict[str, Any]]:
         return r
     else:
         return in_memory_db.reports.get(report_id)
+
+async def add_report_attachment(report_id: str, attachment: Dict[str, Any]) -> List[Dict[str, Any]]:
+    att_id = str(uuid.uuid4())
+    attachment["id"] = att_id
+    attachment["timestamp"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
+
+    if is_mongo_available():
+        await mongodb.reports.update_one({"_id": report_id}, {"$push": {"attachments": attachment}})
+        r = await get_report_by_id(report_id)
+        return r.get("attachments", []) if r else []
+    else:
+        if report_id in in_memory_db.reports:
+            if "attachments" not in in_memory_db.reports[report_id]:
+                in_memory_db.reports[report_id]["attachments"] = []
+            in_memory_db.reports[report_id]["attachments"].append(attachment)
+            return in_memory_db.reports[report_id]["attachments"]
+        return []
 
 async def update_report_status(report_id: str, status: str) -> Optional[Dict[str, Any]]:
     if is_mongo_available():
@@ -257,10 +276,12 @@ async def get_alerts(filter_query: Dict[str, Any] = None) -> List[Dict[str, Any]
         res = list(in_memory_db.alerts.values())
         if "worker_id" in filter_query:
             res = [a for a in res if a.get("worker_id") == filter_query["worker_id"]]
+        if "channel" in filter_query and filter_query["channel"] != "all":
+            res = [a for a in res if a.get("type", "").lower() == filter_query["channel"].lower()]
+        if "status" in filter_query and filter_query["status"] != "all":
+            res = [a for a in res if a.get("status", "").lower() == filter_query["status"].lower()]
         res.sort(key=lambda x: x.get("sent_at", ""), reverse=True)
         return res
-
-# --- NEW DATASTORE FUNCTIONS FOR MASTER SPECIFICATION ---
 
 async def create_warning(warning_data: Dict[str, Any]) -> Dict[str, Any]:
     w_id = str(uuid.uuid4())
@@ -268,12 +289,27 @@ async def create_warning(warning_data: Dict[str, Any]) -> Dict[str, Any]:
     warning_data["id"] = w_id
     warning_data["timestamp"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
     warning_data["status"] = warning_data.get("status", "Delivered")
+    warning_data["acknowledged"] = False
     
     if is_mongo_available():
         await mongodb.warnings.insert_one(warning_data)
     else:
         in_memory_db.warnings[w_id] = warning_data
     return warning_data
+
+async def acknowledge_warning(warning_id: str) -> Optional[Dict[str, Any]]:
+    if is_mongo_available():
+        await mongodb.warnings.update_one({"_id": warning_id}, {"$set": {"acknowledged": True, "acknowledged_at": datetime.datetime.now(datetime.timezone.utc).isoformat()}})
+        w = await mongodb.warnings.find_one({"_id": warning_id})
+        if w:
+            w["id"] = str(w["_id"])
+        return w
+    else:
+        if warning_id in in_memory_db.warnings:
+            in_memory_db.warnings[warning_id]["acknowledged"] = True
+            in_memory_db.warnings[warning_id]["acknowledged_at"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
+            return in_memory_db.warnings[warning_id]
+        return None
 
 async def get_warnings(filter_query: Dict[str, Any] = None) -> List[Dict[str, Any]]:
     filter_query = filter_query or {}
@@ -382,7 +418,6 @@ async def get_worker_details(worker_id: str) -> Optional[Dict[str, Any]]:
     if not user:
         return None
     
-    # Aggregate worker metrics
     reports = await get_reports({"worker_id": worker_id})
     trainings = await get_user_training_history(worker_id)
     warns = await get_warnings({"worker_id": worker_id})
@@ -417,3 +452,48 @@ async def get_worker_locations() -> List[Dict[str, Any]]:
         return locs
     else:
         return in_memory_db.worker_locations
+
+import re
+
+def parse_batch_worker_entries(raw_text: str) -> List[Dict[str, Any]]:
+    """
+    Parses a batch text block or extracted PDF text containing multiple worker near-miss entries.
+    Entries are split on Worker ID patterns (e.g. OIL-W-101, OIL-W-102, OIL-W-xxx).
+    Returns list of dicts: [{'worker_id': 'OIL-W-101', 'site_id': 'OIL-DIGBOI-01', 'incident_text': '...'}]
+    """
+    if not raw_text or not raw_text.strip():
+        return []
+        
+    pattern = r'(OIL-W-\d+)'
+    splits = re.split(pattern, raw_text)
+    
+    entries = []
+    i = 1
+    while i < len(splits):
+        token = splits[i].strip()
+        if re.match(r'^OIL-W-\d+$', token):
+            curr_worker_id = token
+            body = splits[i+1].strip() if (i+1 < len(splits)) else ""
+            
+            site_match = re.search(r'(OIL-[A-Z]+-\d+|Duliajan|Digboi|Moran|Jorhat|Guwahati)', body, re.IGNORECASE)
+            site_id = site_match.group(1).upper() if site_match else "OIL-DULIAJAN-01"
+            if not site_id.startswith("OIL-"):
+                site_id = f"OIL-{site_id[:8].upper()}-01"
+                
+            entries.append({
+                "worker_id": curr_worker_id,
+                "site_id": site_id,
+                "incident_text": body[:1000] if body else f"Near-miss observation logged for worker {curr_worker_id}."
+            })
+            i += 2
+        else:
+            i += 1
+            
+    if not entries:
+        entries.append({
+            "worker_id": "OIL-W-101",
+            "site_id": "OIL-DULIAJAN-01",
+            "incident_text": raw_text.strip()
+        })
+        
+    return entries

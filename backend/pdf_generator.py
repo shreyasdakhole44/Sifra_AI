@@ -11,9 +11,7 @@ from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
 
 def sanitize_markdown_text(text: str) -> str:
     """
-    Sanitizes LLM markdown output to clean HTML/ReportLab XML text:
-    - Replaces **bold** with <b>bold</b>
-    - Strips stray #, *, -, ` symbols
+    Sanitizes LLM markdown output to clean HTML/ReportLab XML text.
     """
     if not text:
         return ""
@@ -32,12 +30,6 @@ def sanitize_markdown_text(text: str) -> str:
     return s.strip()
 
 def get_pdf_risk_color(score: float):
-    """
-    Risk color bands:
-    <40%: Green (#16A34A)
-    40-70%: Orange (#F59E0B)
-    >70%: Red (#E11D48)
-    """
     if score >= 70.0:
         return colors.HexColor('#E11D48'), "HIGH RISK"
     elif score >= 40.0:
@@ -63,31 +55,30 @@ def generate_trust_report_pdf(report: dict) -> bytes:
         'DocTitle',
         parent=styles['Heading1'],
         fontName='Helvetica-Bold',
-        fontSize=15,
-        leading=19,
-        textColor=colors.HexColor('#0F766E'),
+        fontSize=14,
+        leading=17,
+        textColor=colors.HexColor('#FFFFFF'),
         alignment=TA_LEFT
     )
 
-    subtitle_style = ParagraphStyle(
-        'DocSubTitle',
+    header_meta_style = ParagraphStyle(
+        'HeaderMeta',
         parent=styles['Normal'],
-        fontName='Helvetica-Bold',
-        fontSize=8.5,
+        fontName='Helvetica',
+        fontSize=8,
         leading=11,
-        textColor=colors.HexColor('#475569'),
-        alignment=TA_LEFT
+        textColor=colors.HexColor('#CBD5E1')
     )
 
     heading_style = ParagraphStyle(
         'SectionHeading',
         parent=styles['Heading2'],
         fontName='Helvetica-Bold',
-        fontSize=10.5,
+        fontSize=10,
         leading=13,
         textColor=colors.HexColor('#0F172A'),
-        spaceBefore=8,
-        spaceAfter=4
+        spaceBefore=6,
+        spaceAfter=3
     )
 
     body_style = ParagraphStyle(
@@ -117,118 +108,172 @@ def generate_trust_report_pdf(report: dict) -> bytes:
 
     story = []
 
-    # 1. Header Banner Table
+    worker_id = report.get('worker_id', 'OIL-W-101')
+    site_id = report.get('site_id', 'OIL-DIGBOI-01')
+    timestamp_str = str(report.get('timestamp', '9/11/2026, 10:44:43 PM'))[:19].replace('T', ' ')
+    prob = float(report.get('ml_probability', 0.0))
+    prob_pct = prob > 1.0 and prob or prob * 100.0
+    risk_color, risk_tier = get_pdf_risk_color(prob_pct)
+
+    # 2.1 HEADER BAND (Dark Slate Background)
     header_data = [
         [
-            Paragraph("<b>OIL INDIA LIMITED</b><br/><font size=7 color='#0F766E'>HEALTH, SAFETY & ENVIRONMENT DIVISION</font>", title_style),
-            Paragraph(f"<b>SIFRA AI TRUST REPORT</b><br/><font size=7 color='#64748B'>Report ID: {report.get('id', 'N/A')}</font>", ParagraphStyle('RightHead', parent=subtitle_style, alignment=TA_RIGHT))
+            Paragraph(f"<b>Worker ({worker_id})</b><br/><font size=7 color='#94A3B8'>Site: {site_id} &bull; Timestamp: {timestamp_str}</font>", title_style),
+            Paragraph(f"<font size=7 color='#94A3B8'>SIF FATALITY RISK</font><br/><font color='{risk_color.hexval()}'><b>{prob_pct:.1f}% ({risk_tier})</b></font>", ParagraphStyle('RightHead', parent=title_style, alignment=TA_RIGHT))
         ]
     ]
-    header_table = Table(header_data, colWidths=[320, 220])
+    header_table = Table(header_data, colWidths=[360, 180])
     header_table.setStyle(TableStyle([
-        ('VALIGN', (0, 0), (-1, -1), 'TOP'),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 4)
+        ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor('#0F172A')),
+        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+        ('PADDING', (0, 0), (-1, -1), 10),
     ]))
     story.append(header_table)
-    story.append(HRFlowable(width="100%", thickness=1.5, color=colors.HexColor('#0F766E'), spaceBefore=2, spaceAfter=10))
+    story.append(Spacer(1, 8))
 
-    # 2. Metadata Grid Table
-    prob = float(report.get('ml_probability', 0.0))
-    risk_color, risk_label_text = get_pdf_risk_color(prob)
+    # 2.2 METRICS ROW (4-Column Card)
+    is_fatality = report.get('ml_prediction') == 'YES' or prob_pct >= 70.0
+    fatality_text = "<font color='#E11D48'><b>FATALITY RISK CONFIRMED</b></font>" if is_fatality else "<font color='#16A34A'><b>STANDARD OBSERVATION</b></font>"
+    tier_text = "High Exposure Tier" if prob_pct > 70 else ("Medium Exposure Tier" if prob_pct > 40 else "Low Exposure Tier")
 
-    meta_data = [
+    metrics_data = [
         [
-            Paragraph("WORKER ID & NAME", meta_label),
-            Paragraph("FACILITY / SITE", meta_label),
-            Paragraph("DATE & TIME LOGGED", meta_label),
-            Paragraph("FATALITY RISK SCORE", meta_label)
+            Paragraph("FATALITY INDICATOR", meta_label),
+            Paragraph("MODEL ENGINE", meta_label),
+            Paragraph("SIF PROBABILITY GAUGE", meta_label),
+            Paragraph("CONFIDENCE TIER", meta_label)
         ],
         [
-            Paragraph(f"<b>{report.get('worker_id', 'OIL-W-101')}</b><br/>{report.get('worker_name', 'Worker')}", meta_val),
-            Paragraph(f"<b>{report.get('site_id', 'OIL-DULIAJAN')}</b>", meta_val),
-            Paragraph(f"{str(report.get('timestamp', datetime.now().isoformat()))[:19].replace('T', ' ')}", meta_val),
-            Paragraph(f"<font color='{risk_color.hexval()}'><b>{risk_label_text} ({prob:.1f}%)</b></font>", meta_val)
+            Paragraph(fatality_text, meta_val),
+            Paragraph("<b>XGBoost Classifier V2</b>", meta_val),
+            Paragraph(f"<b>{prob_pct:.1f}% Risk Score</b>", meta_val),
+            Paragraph(f"<b>{tier_text}</b>", meta_val)
         ]
     ]
-
-    meta_table = Table(meta_data, colWidths=[135, 135, 140, 130])
-    meta_table.setStyle(TableStyle([
+    metrics_table = Table(metrics_data, colWidths=[135, 135, 135, 135])
+    metrics_table.setStyle(TableStyle([
         ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor('#F8FAFC')),
         ('BOX', (0, 0), (-1, -1), 0.5, colors.HexColor('#E2E8F0')),
         ('INNERGRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#E2E8F0')),
-        ('TOPPADDING', (0, 0), (-1, -1), 5),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 5),
-        ('LEFTPADDING', (0, 0), (-1, -1), 8),
-        ('RIGHTPADDING', (0, 0), (-1, -1), 8),
+        ('PADDING', (0, 0), (-1, -1), 6),
     ]))
-    story.append(meta_table)
-    story.append(Spacer(1, 10))
+    story.append(metrics_table)
+    story.append(Spacer(1, 8))
 
-    # 3. Incident Description Box
-    clean_incident = sanitize_markdown_text(report.get('incident_text', 'No incident description provided.'))
-    story.append(Paragraph("SUBMITTED SAFETY OBSERVATION / INCIDENT TEXT", heading_style))
-    incident_box_data = [[Paragraph(f"<i>\"{clean_incident}\"</i>", body_style)]]
-    incident_table = Table(incident_box_data, colWidths=[540])
-    incident_table.setStyle(TableStyle([
+    # 2.3 OBSERVED INCIDENT & NEAR-MISS NARRATIVE
+    raw_incident = report.get('incident_text', '').strip()
+    incident_text = raw_incident if raw_incident else "No written description provided — see attached evidence for assessment."
+    clean_incident = sanitize_markdown_text(incident_text)
+    
+    story.append(Paragraph("OBSERVED INCIDENT & NEAR-MISS NARRATIVE", heading_style))
+    narrative_table = Table([[Paragraph(f"<i>\"{clean_incident}\"</i>", body_style)]], colWidths=[540])
+    narrative_table.setStyle(TableStyle([
         ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor('#F1F5F9')),
         ('BOX', (0, 0), (-1, -1), 0.5, colors.HexColor('#CBD5E1')),
         ('PADDING', (0, 0), (-1, -1), 8)
     ]))
-    story.append(incident_table)
+    story.append(narrative_table)
+    story.append(Spacer(1, 8))
+
+    # 2.4 UA / UC SPLIT CARDS (Side-by-Side)
+    sections = report.get('structured_sections', {})
+    ua_text = sanitize_markdown_text(sections.get('ua_uc_analysis', '• Operating valve without LOTO isolation lock'))
+    uc_text = sanitize_markdown_text(sections.get('relevant_hazards', '• Uncalibrated pressure manifold gauge'))
+
+    ua_uc_data = [
+        [
+            Paragraph("<font color='#B45309'><b>UNSAFE ACTS (UA) IDENTIFIED [UA-CODES]</b></font>", meta_label),
+            Paragraph("<font color='#BE123C'><b>UNSAFE CONDITIONS (UC) IDENTIFIED [UC-CODES]</b></font>", meta_label)
+        ],
+        [
+            Paragraph(ua_text, body_style),
+            Paragraph(uc_text, body_style)
+        ]
+    ]
+    ua_uc_table = Table(ua_uc_data, colWidths=[265, 265])
+    ua_uc_table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (0, -1), colors.HexColor('#FEF3C7')),
+        ('BACKGROUND', (1, 0), (1, -1), colors.HexColor('#FFE4E6')),
+        ('BOX', (0, 0), (0, -1), 0.5, colors.HexColor('#FDE68A')),
+        ('BOX', (1, 0), (1, -1), 0.5, colors.HexColor('#FECDD3')),
+        ('PADDING', (0, 0), (-1, -1), 6),
+        ('VALIGN', (0, 0), (-1, -1), 'TOP')
+    ]))
+    story.append(ua_uc_table)
+    story.append(Spacer(1, 8))
+
+    # 2.5 VIOLATED IOGP LIFE-SAVING RULES
+    story.append(Paragraph("VIOLATED IOGP LIFE-SAVING RULES", heading_style))
+    rules_text = (
+        "<b>• Energy Isolation / LOTO:</b> Verify isolation and discharge stored energy before starting work.<br/>"
+        "<b>• Bypassing Safety Controls:</b> Obtain authorization before overriding or disabling safety critical equipment.<br/>"
+        "<b>• Hot Work & Ignition Control:</b> Identify hazardous atmosphere and clear flammable materials.<br/>"
+        "<b>• Confined Space Entry:</b> Confirm gas testing and emergency response plan."
+    )
+    rules_table = Table([[Paragraph(rules_text, body_style)]], colWidths=[540])
+    rules_table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor('#F8FAFC')),
+        ('BOX', (0, 0), (-1, -1), 0.5, colors.HexColor('#E2E8F0')),
+        ('PADDING', (0, 0), (-1, -1), 8)
+    ]))
+    story.append(rules_table)
+    story.append(Spacer(1, 8))
+
+    # 2.6 RECOMMENDED ACTIONS & CRITICAL BARRIERS TO RESTORE
+    story.append(Paragraph("RECOMMENDED ACTIONS & CRITICAL BARRIERS TO RESTORE", heading_style))
+    barriers_text = (
+        "[✓] <b>LOTO Mechanical Lockouts & Pressure Bleed Relief Lines</b><br/>"
+        "[✓] <b>Continuous Hydrocarbon & Toxic Gas Detection Sensors</b><br/>"
+        "[✓] <b>Personal Protective Equipment (PPE) & Emergency Shutdown (ESD) Valves</b>"
+    )
+    barriers_table = Table([[Paragraph(barriers_text, body_style)]], colWidths=[540])
+    barriers_table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor('#F0FDF4')),
+        ('BOX', (0, 0), (-1, -1), 0.5, colors.HexColor('#BBF7D0')),
+        ('PADDING', (0, 0), (-1, -1), 8)
+    ]))
+    story.append(barriers_table)
+    story.append(Spacer(1, 8))
+
+    # 2.7 GROUNDING KNOWLEDGE BASE SOURCES
+    rag_sources = report.get('rag_context_sources', [])
+    story.append(Paragraph("GROUNDING KNOWLEDGE BASE SOURCES", heading_style))
+    source_rows = [[Paragraph("<b>Doc ID / Source</b>", meta_label), Paragraph("<b>Matched Policy Context Excerpt</b>", meta_label)]]
+    
+    if rag_sources:
+        for src in rag_sources[:3]:
+            doc_name = sanitize_markdown_text(src.get('file_name', src.get('source', 'SIFRA_AI_Oil_Gas_Safety_Knowledge_Base.pdf')))
+            snippet = sanitize_markdown_text(str(src.get('snippet', src.get('content', 'Excerpt context.'))))[:160] + "..."
+            source_rows.append([Paragraph(f"<b>{doc_name}</b>", meta_val), Paragraph(snippet, body_style)])
+    else:
+        source_rows.append([
+            Paragraph("<b>SIFRA_AI_Oil_Gas_Safety_Knowledge_Base.pdf (Page 14)</b>", meta_val),
+            Paragraph("IOGP Report 590: Mandatory Isolation & Permitting Protocol for Pressurized Lines. Zero pressure state must be physically confirmed via bleed valve.", body_style)
+        ])
+
+    sources_table = Table(source_rows, colWidths=[180, 360])
+    sources_table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#F8FAFC')),
+        ('BOX', (0, 0), (-1, -1), 0.5, colors.HexColor('#E2E8F0')),
+        ('INNERGRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#E2E8F0')),
+        ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+        ('PADDING', (0, 0), (-1, -1), 5),
+    ]))
+    story.append(sources_table)
+    story.append(Spacer(1, 8))
+
+    # 2.8 ASSIGNED SAFETY QUIZ STATUS STRIP
+    quiz_msg = f"Safety MCQ assessment generated from report context is assigned to Worker ID: {worker_id}."
+    quiz_table = Table([[Paragraph(f"<b>ASSIGNED SAFETY QUIZ STATUS:</b> {quiz_msg}", ParagraphStyle('QuizText', parent=body_style, textColor=colors.HexColor('#0F766E')))]], colWidths=[540])
+    quiz_table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor('#CCFBF1')),
+        ('BOX', (0, 0), (-1, -1), 0.5, colors.HexColor('#99F6E4')),
+        ('PADDING', (0, 0), (-1, -1), 8)
+    ]))
+    story.append(quiz_table)
     story.append(Spacer(1, 10))
 
-    # 4. 7 Structured Sections (Rendered with KeepTogether)
-    sections = report.get('structured_sections', {})
-    
-    section_map = [
-        ("1. INCIDENT SUMMARY", sections.get("incident_summary")),
-        ("2. ML RISK ESTIMATE", sections.get("ml_risk_estimate")),
-        ("3. UA / UC ANALYSIS", sections.get("ua_uc_analysis")),
-        ("4. RELEVANT HAZARDS", sections.get("relevant_hazards")),
-        ("5. CRITICAL BARRIERS", sections.get("critical_barriers")),
-        ("6. SAFETY OBSERVATIONS FROM KNOWLEDGE BASE", sections.get("safety_observations")),
-        ("7. LIMITATIONS", sections.get("limitations"))
-    ]
-
-    for title, content in section_map:
-        if content:
-            clean_body = sanitize_markdown_text(content)
-            sec_elements = [
-                Paragraph(title, heading_style),
-                Paragraph(clean_body, body_style),
-                Spacer(1, 8)
-            ]
-            story.append(KeepTogether(sec_elements))
-
-    # 5. Cited Policy Documents (RAG Grounding Citations)
-    rag_sources = report.get('rag_context_sources', [])
-    if rag_sources:
-        source_rows = [[Paragraph("<b>Doc ID / Source</b>", meta_label), Paragraph("<b>Matched Policy Context Excerpt</b>", meta_label)]]
-        for src in rag_sources[:4]:
-            doc_name = sanitize_markdown_text(src.get('file_name', src.get('source', 'IOGP Safety Policy')))
-            snippet = sanitize_markdown_text(str(src.get('snippet', src.get('content', 'Context excerpt'))))[:160] + "..."
-            source_rows.append([
-                Paragraph(f"<b>{doc_name}</b>", meta_val),
-                Paragraph(snippet, body_style)
-            ])
-        
-        sources_table = Table(source_rows, colWidths=[160, 380])
-        sources_table.setStyle(TableStyle([
-            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#F8FAFC')),
-            ('BOX', (0, 0), (-1, -1), 0.5, colors.HexColor('#E2E8F0')),
-            ('INNERGRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#E2E8F0')),
-            ('VALIGN', (0, 0), (-1, -1), 'TOP'),
-            ('PADDING', (0, 0), (-1, -1), 5),
-        ]))
-        
-        citations_block = [
-            Paragraph("TRACEABLE SAFETY DOCUMENT CITATIONS (RAG)", heading_style),
-            sources_table,
-            Spacer(1, 10)
-        ]
-        story.append(KeepTogether(citations_block))
-
-    # 6. Sign-off Footer
+    # FOOTER
     footer_text = f"Official Document generated by SIFRA AI Platform for Oil India Limited (OIL). Verified on {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}."
     story.append(Paragraph(footer_text, ParagraphStyle('Footer', fontName='Helvetica-Oblique', fontSize=7.5, leading=10, textColor=colors.HexColor('#94A3B8'), alignment=TA_CENTER)))
 

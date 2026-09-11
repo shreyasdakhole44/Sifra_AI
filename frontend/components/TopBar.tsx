@@ -3,19 +3,28 @@
 import React from 'react';
 import { usePathname } from 'next/navigation';
 import { useAuth } from '@/lib/authContext';
-import { Search, ChevronRight, Activity, ShieldAlert, Globe } from 'lucide-react';
+import { Search, ChevronRight } from 'lucide-react';
 
 export const TopBar = () => {
   const { user } = useAuth();
   const pathname = usePathname();
 
-  if (!user || pathname === '/login') return null;
+  if (!user || pathname === '/login' || pathname === '/') return null;
 
   const getBreadcrumb = () => {
-    if (pathname === '/admin') return 'HSE Dashboard';
-    if (pathname === '/worker') return 'Incident Portal';
-    if (pathname === '/training') return 'Safety Quizzes';
-    if (pathname === '/alerts') return 'Alerts Inbox';
+    if (pathname === '/admin') return 'Overview & Heatmap';
+    if (pathname === '/admin/reports') return 'Reports & AI Analysis';
+    if (pathname === '/admin/map') return 'Risk Map';
+    if (pathname === '/admin/workers') return 'Worker Safety Register';
+    if (pathname === '/admin/quizzes') return 'Safety Quizzes';
+    if (pathname === '/alerts') return 'Alerts & Notifications';
+    if (pathname === '/admin/pdf-reports') return 'PDF Trust Reports';
+    if (pathname === '/admin/settings') return 'System Settings';
+    if (pathname === '/worker' || pathname === '/worker/profile') return 'My Profile';
+    if (pathname === '/worker/history') return 'Safety History';
+    if (pathname === '/worker/alerts') return 'Alerts';
+    if (pathname === '/worker/quizzes') return 'Assigned Quizzes';
+    if (pathname === '/worker/leaderboard') return 'Leaderboard';
     if (pathname.startsWith('/reports/')) return 'Report Detailed Analysis';
     return 'Dashboard';
   };

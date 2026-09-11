@@ -237,26 +237,21 @@ Unsafe ladder placement without safety harness lanyard anchor during height insp
 
   return (
     <div className="space-y-6">
-      {/* Header Banner */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-200">
-        <div>
-          <div className="flex items-center space-x-2">
-            <h1 className="text-xl font-bold text-slate-900 tracking-tight">HSC Officer Control Room</h1>
-            <span className="bg-teal-50 text-teal-800 text-[11px] font-mono font-bold px-2 py-0.5 rounded border border-teal-200">
-              Oil India Limited Executive Command
-            </span>
-          </div>
-          <p className="text-xs text-slate-500 mt-1">
-            File worker near-miss reports, run batch PDF intakes, view dynamic Leaflet heatmaps, and audit AI Trust Reports.
+      {/* Page Header */}
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-4 border-b border-slate-200">
+        <div className="space-y-1">
+          <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight text-slate-900">HSC Officer Control Room</h1>
+          <p className="text-sm text-slate-600 leading-relaxed max-w-3xl">
+            Monitor worker safety reports, review SIF risk assessments, validate safety barriers, and manage field safety actions.
           </p>
         </div>
 
-        <div className="flex items-center space-x-3">
+        <div className="flex items-center gap-3 shrink-0">
           <button
             onClick={() => setShowBatchModal(true)}
-            className="px-3.5 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-lg text-xs font-semibold shadow-xs transition-colors flex items-center space-x-1.5"
+            className="min-h-[44px] px-4 py-2.5 bg-white text-slate-700 border border-slate-200 hover:bg-slate-50 rounded-lg text-xs sm:text-sm font-medium transition-colors flex items-center space-x-2 shadow-xs"
           >
-            <Upload className="w-3.5 h-3.5" />
+            <Upload className="w-4 h-4 text-slate-500" />
             <span>Batch PDF Intake</span>
           </button>
 
@@ -272,61 +267,60 @@ Unsafe ladder placement without safety harness lanyard anchor during height insp
                 document.getElementById('incident-report-form')?.scrollIntoView({ behavior: 'smooth' });
               }, 50);
             }}
-            className="px-3.5 py-2 bg-teal-700 hover:bg-teal-800 text-white rounded-lg text-xs font-semibold shadow-xs transition-colors flex items-center space-x-1.5"
+            className="min-h-[44px] px-4 py-2.5 bg-teal-700 hover:bg-teal-800 text-white rounded-lg text-xs sm:text-sm font-semibold transition-colors shadow-xs flex items-center space-x-2"
           >
             <Plus className="w-4 h-4" />
             <span>File Worker Incident Report</span>
-          </button>
-
-          <button
-            onClick={logout}
-            className="px-3.5 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-lg text-xs font-semibold shadow-xs transition-colors flex items-center space-x-1.5"
-            title="Sign out"
-          >
-            <LogOut className="w-3.5 h-3.5" />
-            <span>Logout</span>
           </button>
         </div>
       </div>
 
       {/* KPI Cards Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="bg-white p-4 rounded-lg border border-slate-200 shadow-xs">
+        <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-xs hover:border-slate-300 transition-colors">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-slate-500">Total Logged Reports</span>
-            <FileText className="w-4 h-4 text-teal-700" />
+            <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">Total Logged Reports</span>
+            <div className="p-2 bg-slate-50 text-teal-700 rounded-lg border border-slate-200">
+              <FileText className="w-4 h-4" />
+            </div>
           </div>
-          <div className="text-2xl font-bold text-slate-900 mt-2 font-mono">{reports.length}</div>
-          <div className="text-[11px] text-slate-500 mt-1">Audit register entries</div>
+          <div className="text-2xl font-bold text-slate-900 mt-3 font-mono">{reports.length}</div>
+          <div className="text-xs text-slate-500 mt-1 font-medium">Reports received</div>
         </div>
 
-        <div className="bg-white p-4 rounded-lg border border-slate-200 shadow-xs">
+        <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-xs hover:border-slate-300 transition-colors">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-slate-500">High SIF Flags (&gt;50%)</span>
-            <ShieldAlert className="w-4 h-4 text-rose-600" />
+            <span className="text-xs font-semibold uppercase tracking-wider text-rose-700">High SIF Flags</span>
+            <div className="p-2 bg-rose-50 text-rose-700 rounded-lg border border-rose-200">
+              <ShieldAlert className="w-4 h-4" />
+            </div>
           </div>
-          <div className="text-2xl font-bold text-rose-600 mt-2 font-mono">
+          <div className="text-2xl font-bold text-rose-700 mt-3 font-mono">
             {reports.filter(r => r.risk_level === 'HIGH').length}
           </div>
-          <div className="text-[11px] text-slate-500 mt-1">Immediate action required</div>
+          <div className="text-xs text-slate-500 mt-1 font-medium">Requires review</div>
         </div>
 
-        <div className="bg-white p-4 rounded-lg border border-slate-200 shadow-xs">
+        <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-xs hover:border-slate-300 transition-colors">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-slate-500">Active Field Workers</span>
-            <Users className="w-4 h-4 text-indigo-600" />
+            <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">Active Field Workers</span>
+            <div className="p-2 bg-slate-50 text-indigo-700 rounded-lg border border-slate-200">
+              <Users className="w-4 h-4" />
+            </div>
           </div>
-          <div className="text-2xl font-bold text-slate-900 mt-2 font-mono">{workers.length}</div>
-          <div className="text-[11px] text-slate-500 mt-1">Tracked across 5 sites</div>
+          <div className="text-2xl font-bold text-slate-900 mt-3 font-mono">{workers.length}</div>
+          <div className="text-xs text-slate-500 mt-1 font-medium">Across monitored sites</div>
         </div>
 
-        <div className="bg-white p-4 rounded-lg border border-slate-200 shadow-xs">
+        <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-xs hover:border-slate-300 transition-colors">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-slate-500">Alert Dispatches</span>
-            <Activity className="w-4 h-4 text-amber-600" />
+            <span className="text-xs font-semibold uppercase tracking-wider text-amber-700">Alert Dispatches</span>
+            <div className="p-2 bg-amber-50 text-amber-700 rounded-lg border border-amber-200">
+              <Activity className="w-4 h-4" />
+            </div>
           </div>
-          <div className="text-2xl font-bold text-amber-600 mt-2 font-mono">{stats?.active_alerts_count || 0}</div>
-          <div className="text-[11px] text-slate-500 mt-1">Twilio SMS / Email logs</div>
+          <div className="text-2xl font-bold text-amber-700 mt-3 font-mono">{stats?.active_alerts_count || 0}</div>
+          <div className="text-xs text-slate-500 mt-1 font-medium">SMS / Email notifications</div>
         </div>
       </div>
 
@@ -414,41 +408,46 @@ Unsafe ladder placement without safety harness lanyard anchor during height insp
         <div id="incident-report-form" className="space-y-4">
           {!submittedReportResult ? (
             /* BEFORE SUBMISSION: REPORT INPUT FORM */
-            <div className="bg-white rounded-lg border border-slate-200 shadow-xs overflow-hidden">
-              <div className="p-4 bg-slate-900 text-white flex items-center justify-between">
-                <div className="flex items-center space-x-2">
-                  <FileText className="w-4 h-4 text-teal-400" />
-                  <h3 className="font-bold text-sm">File Worker Incident / Near-Miss Report</h3>
+            <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
+              <div className="p-4 sm:p-5 bg-slate-900 text-white flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800">
+                <div>
+                  <h3 className="font-semibold text-base text-white flex items-center space-x-2">
+                    <FileText className="w-4 h-4 text-teal-400" />
+                    <span>File Worker Incident / Near-Miss Report</span>
+                  </h3>
+                  <p className="text-xs text-slate-400 mt-0.5 font-normal">
+                    Submit a field observation or near-miss for SIF risk assessment.
+                  </p>
                 </div>
-                <span className="text-xs text-slate-400 font-mono">HSC Officer Direct Portal</span>
+                <span className="text-xs text-slate-400 font-mono">HSC Officer Control Room</span>
               </div>
 
-              <form onSubmit={handleSingleReportSubmit} className="p-6 space-y-4">
+              <form onSubmit={handleSingleReportSubmit} className="p-5 sm:p-6 space-y-5">
                 {formValidationError && (
-                  <div className="p-3 bg-rose-50 border border-rose-200 text-rose-700 rounded text-xs font-semibold flex items-center space-x-2">
+                  <div className="p-3 bg-rose-50 border border-rose-200 text-rose-700 rounded-lg text-xs sm:text-sm font-medium flex items-center space-x-2">
                     <AlertTriangle className="w-4 h-4 shrink-0 text-rose-600" />
                     <span>{formValidationError}</span>
                   </div>
                 )}
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-5">
                   <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-1">Target Worker ID</label>
+                    <label className="block text-sm font-medium text-slate-700 mb-1.5">Target Worker ID</label>
                     <input
                       type="text"
                       required
                       value={targetWorkerId}
                       onChange={(e) => setTargetWorkerId(e.target.value)}
                       placeholder="e.g. OIL-W-101"
-                      className="w-full px-3 py-2 text-xs font-mono border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-700"
+                      className="w-full h-11 px-3.5 text-sm font-mono border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-700"
                     />
                   </div>
                   <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-1">Operational Site ID</label>
+                    <label className="block text-sm font-medium text-slate-700 mb-1.5">Operational Site ID</label>
                     <select
                       value={targetSiteId}
                       onChange={(e) => setTargetSiteId(e.target.value)}
-                      className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-700"
+                      className="w-full h-11 px-3.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-700 bg-white"
                     >
                       <option value="OIL-DIGBOI-01">OIL-DIGBOI-01 (Refinery & Field)</option>
                       <option value="OIL-DULIAJAN-01">OIL-DULIAJAN-01 (HQ Rig Site)</option>
@@ -459,7 +458,7 @@ Unsafe ladder placement without safety harness lanyard anchor during height insp
                 </div>
 
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  <label className="block text-sm font-medium text-slate-700 mb-1.5">
                     Incident Narrative / Observation Description
                   </label>
                   <textarea
@@ -470,12 +469,12 @@ Unsafe ladder placement without safety harness lanyard anchor during height insp
                       if (formValidationError) setFormValidationError('');
                     }}
                     placeholder="Describe observed unsafe acts, line pressure surge, gas leaks, or missing LOTO locks..."
-                    className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-700"
+                    className="w-full p-3.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-700 leading-relaxed"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  <label className="block text-sm font-medium text-slate-700 mb-1.5">
                     Attach Evidence Files (Images, PDFs, Voice Notes)
                   </label>
                   <DropzoneUpload
@@ -486,7 +485,7 @@ Unsafe ladder placement without safety harness lanyard anchor during height insp
                   />
                 </div>
 
-                <div className="flex items-center justify-end space-x-2 pt-3 border-t border-slate-100">
+                <div className="flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-end gap-3 pt-4 border-t border-slate-100">
                   <button
                     type="button"
                     onClick={() => {
@@ -494,17 +493,17 @@ Unsafe ladder placement without safety harness lanyard anchor during height insp
                       setEvidenceFiles([]);
                       setFormValidationError('');
                     }}
-                    className="px-4 py-2 bg-white border border-slate-200 text-slate-700 rounded-lg text-xs font-semibold hover:bg-slate-50"
+                    className="min-h-[44px] px-4 py-2.5 bg-white border border-slate-200 text-slate-700 rounded-lg text-sm font-medium hover:bg-slate-50 transition-colors"
                   >
                     Cancel
                   </button>
                   <button
                     type="submit"
                     disabled={submittingReport}
-                    className="px-4 py-2 bg-teal-700 text-white rounded-lg text-xs font-semibold hover:bg-teal-800 shadow-xs flex items-center space-x-1.5 disabled:opacity-50"
+                    className="min-h-[44px] px-5 py-2.5 bg-teal-700 text-white rounded-lg text-sm font-semibold hover:bg-teal-800 shadow-xs flex items-center justify-center space-x-2 transition-colors disabled:opacity-50"
                   >
-                    <Send className="w-3.5 h-3.5" />
-                    <span>{submittingReport ? 'Running AI Pipeline...' : 'Submit Report & Dispatch Quiz'}</span>
+                    <Send className="w-4 h-4" />
+                    <span>{submittingReport ? 'Analyzing incident...' : 'Analyze & Submit Incident'}</span>
                   </button>
                 </div>
               </form>

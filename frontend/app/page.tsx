@@ -106,7 +106,7 @@ export default function PublicLandingPage() {
             <ShieldAlert className="w-5 h-5 text-teal-100" />
           </div>
           <div className="flex items-center space-x-2">
-            <span className="font-extrabold text-base sm:text-lg text-slate-900 tracking-tight">OIL SIFRA AI</span>
+            <span className="font-extrabold text-base sm:text-lg text-slate-900 tracking-tight">SIFRA AI</span>
             <span className="font-mono text-xs bg-slate-100 text-slate-600 px-2 py-0.5 rounded border border-slate-200 font-semibold hidden sm:inline-block">
               OIL HSE CORP
             </span>
@@ -772,7 +772,7 @@ export default function PublicLandingPage() {
           <div className="space-y-3">
             <div className="flex items-center space-x-2 text-white font-extrabold text-base">
               <ShieldAlert className="w-5 h-5 text-teal-400" />
-              <span>OIL SIFRA AI</span>
+              <span>SIFRA AI</span>
             </div>
             <p className="text-[11px] leading-relaxed text-slate-400">
               Severe Injury & Fatality Risk Assessment AI engineered for Oil India Limited (OIL) field operations.

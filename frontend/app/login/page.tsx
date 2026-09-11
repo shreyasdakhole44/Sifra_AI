@@ -49,7 +49,7 @@ export default function LoginPage() {
           <div className="w-11 h-11 bg-teal-700 text-white rounded-xl mx-auto flex items-center justify-center font-bold text-sm shadow-xs mb-3">
             <ShieldAlert className="w-6 h-6 text-teal-100" />
           </div>
-          <h1 className="text-xl font-extrabold text-slate-900 tracking-tight">OIL SIFRA AI</h1>
+          <h1 className="text-xl font-extrabold text-slate-900 tracking-tight">SIFRA AI</h1>
           <p className="text-xs text-slate-600 font-medium mt-0.5">Oil India Limited &bull; Safety Intelligence Platform</p>
         </div>
 

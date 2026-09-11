@@ -59,11 +59,23 @@ async def submit_incident_report(
         )
 
     raw_text = req.incident_text.strip() if has_text else "No written description provided — see attached evidence for assessment."
+    target_worker_id = (req.worker_id or current_user.get("worker_id", current_user.get("id", "OIL-W-101"))).strip()
+    site_id = req.site_id or current_user.get("site_id", "OIL-DULIAJAN-01")
+
+    # If the officer pasted or uploaded a batch document containing multiple worker entries:
+    parsed_batch = parse_batch_worker_entries(raw_text)
+    if len(parsed_batch) > 1:
+        matched = None
+        for b_entry in parsed_batch:
+            if b_entry["worker_id"].upper() == target_worker_id.upper():
+                matched = b_entry
+                break
+        if matched:
+            raw_text = matched["incident_text"]
+            site_id = matched.get("site_id", site_id)
+
     info_dict = req.establishment_info.dict() if req.establishment_info else {}
     analysis = analyze_incident_pipeline(raw_text, info_dict)
-    
-    target_worker_id = req.worker_id or current_user.get("worker_id", current_user["id"])
-    site_id = req.site_id or current_user.get("site_id", "OIL-DULIAJAN-01")
 
     report_document = {
         "worker_id": target_worker_id,
@@ -76,6 +88,12 @@ async def submit_incident_report(
         "rag_context_sources": analysis["rag_results"],
         "llm_analysis": analysis["llm_analysis_raw"],
         "structured_sections": analysis["structured_sections"],
+        "unsafe_acts": analysis.get("unsafe_acts", []),
+        "unsafe_conditions": analysis.get("unsafe_conditions", []),
+        "iogp_rules": analysis.get("iogp_rules", []),
+        "failed_barriers": analysis.get("failed_barriers", []),
+        "critical_barriers": analysis.get("critical_barriers", []),
+        "relevant_hazards": analysis.get("relevant_hazards", []),
         "attachments": [],
         "site_id": site_id,
         "status": "Pending Review" if analysis["risk_level"] == "HIGH" else "Resolved",
@@ -123,6 +141,12 @@ async def submit_batch_reports(
             "rag_context_sources": analysis["rag_results"],
             "llm_analysis": analysis["llm_analysis_raw"],
             "structured_sections": analysis["structured_sections"],
+            "unsafe_acts": analysis.get("unsafe_acts", []),
+            "unsafe_conditions": analysis.get("unsafe_conditions", []),
+            "iogp_rules": analysis.get("iogp_rules", []),
+            "failed_barriers": analysis.get("failed_barriers", []),
+            "critical_barriers": analysis.get("critical_barriers", []),
+            "relevant_hazards": analysis.get("relevant_hazards", []),
             "attachments": [],
             "site_id": s_id,
             "status": "Pending Review" if analysis["risk_level"] == "HIGH" else "Resolved",

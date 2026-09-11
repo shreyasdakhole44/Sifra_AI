@@ -61,9 +61,24 @@ export const TrustReportView: React.FC<TrustReportViewProps> = ({
       .filter((l) => l.length > 0);
   };
 
-  const unsafeActs = parseBullets(structured.ua_uc_analysis || '');
-  const hazards = parseBullets(structured.relevant_hazards || '');
-  const barriers = parseBullets(structured.critical_barriers || '');
+  const unsafeActs = (report.unsafe_acts && report.unsafe_acts.length > 0)
+    ? report.unsafe_acts
+    : parseBullets(structured.ua_uc_analysis || '');
+  const hazards = (report.unsafe_conditions && report.unsafe_conditions.length > 0)
+    ? report.unsafe_conditions
+    : (report.relevant_hazards && report.relevant_hazards.length > 0)
+      ? report.relevant_hazards
+      : parseBullets(structured.relevant_hazards || '');
+
+  const dynamicIogpRules = (report.iogp_rules && report.iogp_rules.length > 0)
+    ? report.iogp_rules
+    : [
+        { id: 'hazard_control', name: 'Worksite Hazard Control', desc: 'Inspect equipment, verify safety clearance, and follow site HSE guidelines.' }
+      ];
+
+  const dynamicCriticalBarriers = (report.critical_barriers && report.critical_barriers.length > 0)
+    ? report.critical_barriers
+    : parseBullets(structured.critical_barriers || '');
 
   return (
     <div className="bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden text-slate-800 text-xs font-sans">
@@ -80,7 +95,7 @@ export const TrustReportView: React.FC<TrustReportViewProps> = ({
             </h2>
           </div>
 
-          <div className="flex items-center space-x-3 text-[11px] text-slate-400 font-mono pt-1">
+          <div className="flex items-center space-x-3 text-[11px] text-slate-400 font-mono pt-1 flex-wrap gap-y-1">
             <span className="flex items-center space-x-1">
               <MapPin className="w-3.5 h-3.5 text-slate-400" />
               <span>{siteId}</span>
@@ -90,6 +105,12 @@ export const TrustReportView: React.FC<TrustReportViewProps> = ({
               <Clock className="w-3.5 h-3.5 text-slate-400" />
               <span>{timestampText}</span>
             </span>
+            {report.id && (
+              <>
+                <span>&bull;</span>
+                <span className="text-emerald-400 font-bold">Report ID: {report.id}</span>
+              </>
+            )}
           </div>
         </div>
 
@@ -203,7 +224,7 @@ export const TrustReportView: React.FC<TrustReportViewProps> = ({
             </div>
             <ul className="space-y-1.5 pt-1 text-slate-800 text-xs">
               {unsafeActs.length > 0 ? (
-                unsafeActs.map((act, i) => (
+                unsafeActs.map((act: string, i: number) => (
                   <li key={i} className="flex items-start space-x-2">
                     <span className="text-amber-600 font-bold text-sm leading-none">&bull;</span>
                     <span>{act}</span>
@@ -227,7 +248,7 @@ export const TrustReportView: React.FC<TrustReportViewProps> = ({
             </div>
             <ul className="space-y-1.5 pt-1 text-slate-800 text-xs">
               {hazards.length > 0 ? (
-                hazards.map((haz, i) => (
+                hazards.map((haz: string, i: number) => (
                   <li key={i} className="flex items-start space-x-2">
                     <span className="text-rose-600 font-bold text-sm leading-none">&bull;</span>
                     <span>{haz}</span>
@@ -251,17 +272,13 @@ export const TrustReportView: React.FC<TrustReportViewProps> = ({
           </div>
 
           <div className="flex flex-wrap gap-2">
-            {[
-              { id: 'loto', name: 'Energy Isolation / LOTO', desc: 'Verify isolation and discharge stored energy before starting work.' },
-              { id: 'bypass', name: 'Bypassing Safety Controls', desc: 'Obtain authorization before overriding or disabling safety critical equipment.' },
-              { id: 'hotwork', name: 'Hot Work & Ignition Control', desc: 'Identify hazardous atmosphere and clear flammable materials before spark work.' },
-              { id: 'confined', name: 'Confined Space Entry', desc: 'Confirm gas testing and emergency response plan before entering tanks/vessels.' }
-            ].map((rule) => {
-              const isSelected = expandedRule === rule.id;
+            {dynamicIogpRules.map((rule: any, idx: number) => {
+              const ruleKey = rule.id || rule.name || `rule-${idx}`;
+              const isSelected = expandedRule === ruleKey;
               return (
                 <button
-                  key={rule.id}
-                  onClick={() => setExpandedRule(isSelected ? null : rule.id)}
+                  key={ruleKey}
+                  onClick={() => setExpandedRule(isSelected ? null : ruleKey)}
                   className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all flex items-center space-x-1.5 ${
                     isSelected
                       ? 'bg-teal-700 text-white border-teal-800 shadow-xs'
@@ -277,12 +294,10 @@ export const TrustReportView: React.FC<TrustReportViewProps> = ({
 
           {expandedRule && (
             <div className="p-3 bg-teal-50/80 border border-teal-200 rounded-lg text-teal-950 text-xs space-y-1">
-              <span className="font-bold block text-teal-900">IOGP Rule Mandate & RAG Compliance Context:</span>
+              <span className="font-bold block text-teal-900">IOGP Rule Mandate & Compliance Details:</span>
               <p className="leading-relaxed text-slate-800">
-                {expandedRule === 'loto' && 'Verify mechanical Lockout/Tagout (LOTO) isolation, atmospheric zero-energy state, and residual pressure relief valve bleed prior to line servicing.'}
-                {expandedRule === 'bypass' && 'Never override, bypass, or inhibit Safety Critical Equipment (ESD, relief valves, gas sensors) without formal Management of Change (MOC) sign-off.'}
-                {expandedRule === 'hotwork' && 'Continuous gas monitoring and hot work permit required before introducing ignition sources into hydrocarbon process zones.'}
-                {expandedRule === 'confined' && 'Mandatory continuous oxygen & H2S testing with stand-by attendant required for all vessel entries.'}
+                {dynamicIogpRules.find((r: any) => (r.id || r.name) === expandedRule)?.desc ||
+                 'Mandatory Oil India Limited HSE compliance rule.'}
               </p>
             </div>
           )}
@@ -296,16 +311,18 @@ export const TrustReportView: React.FC<TrustReportViewProps> = ({
           </h3>
 
           <div className="space-y-2">
-            {[
-              'LOTO Mechanical Lockouts & Pressure Bleed Relief Lines',
-              'Continuous Hydrocarbon & Toxic Gas Detection Sensors',
-              'Personal Protective Equipment (PPE) & Emergency Shutdown (ESD) Valves'
-            ].map((item, idx) => (
-              <div key={idx} className="flex items-start space-x-2.5 p-2.5 bg-slate-50 rounded-lg border border-slate-200">
-                <input type="checkbox" readOnly checked className="mt-0.5 accent-teal-700 rounded w-4 h-4 cursor-default" />
-                <span className="text-slate-800 text-xs font-semibold">{item}</span>
+            {dynamicCriticalBarriers.length > 0 ? (
+              dynamicCriticalBarriers.map((item: string, idx: number) => (
+                <div key={idx} className="flex items-start space-x-2.5 p-2.5 bg-slate-50 rounded-lg border border-slate-200">
+                  <input type="checkbox" readOnly checked className="mt-0.5 accent-teal-700 rounded w-4 h-4 cursor-default" />
+                  <span className="text-slate-800 text-xs font-semibold">{item}</span>
+                </div>
+              ))
+            ) : (
+              <div className="p-3 bg-slate-50 text-slate-500 italic text-xs rounded border border-slate-200">
+                No specific critical barrier actions required.
               </div>
-            ))}
+            )}
           </div>
         </div>
 

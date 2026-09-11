@@ -52,6 +52,7 @@ export function AdminDashboard({ initialTab = 'overview' }: { initialTab?: strin
   const [selectedReportForView, setSelectedReportForView] = useState<any>(null);
 
   // Single Report Submission State
+  const [submittedReportResult, setSubmittedReportResult] = useState<any>(null);
   const [targetWorkerId, setTargetWorkerId] = useState('OIL-W-101');
   const [targetSiteId, setTargetSiteId] = useState('OIL-DIGBOI-01');
   const [reportText, setReportText] = useState('');
@@ -121,11 +122,12 @@ Unsafe ladder placement without safety harness lanyard anchor during height insp
         has_files: hasFiles
       });
 
+      let finalReport = created;
       if (hasFiles) {
-        await reportsApi.uploadAttachments(created.id, evidenceFiles);
+        finalReport = await reportsApi.uploadAttachments(created.id, evidenceFiles);
       }
 
-      alert(`Near-Miss / Incident Report submitted successfully for Worker ${targetWorkerId}! Quiz & alert dispatched.`);
+      setSubmittedReportResult(finalReport);
       setReportText('');
       setEvidenceFiles([]);
       loadDashboardData();
@@ -260,6 +262,7 @@ Unsafe ladder placement without safety harness lanyard anchor during height insp
           <button
             onClick={() => {
               setActiveTab('overview');
+              setSubmittedReportResult(null);
               setTimeout(() => {
                 document.getElementById('incident-report-form')?.scrollIntoView({ behavior: 'smooth' });
               }, 50);
@@ -392,102 +395,126 @@ Unsafe ladder placement without safety harness lanyard anchor during height insp
         </button>
       </div>
 
-      {/* TAB 1: OVERVIEW — EMBEDDED INCIDENT / NEAR-MISS REPORT FORM */}
+      {/* TAB 1: OVERVIEW & REPORTS */}
       {activeTab === 'overview' && (
-        <div id="incident-report-form" className="bg-white rounded-lg border border-slate-200 shadow-xs overflow-hidden">
-          <div className="p-4 bg-slate-900 text-white flex items-center justify-between">
-            <div className="flex items-center space-x-2">
-              <FileText className="w-4 h-4 text-teal-400" />
-              <h3 className="font-bold text-sm">File Worker Incident / Near-Miss Report</h3>
+        <div id="incident-report-form" className="space-y-4">
+          {!submittedReportResult ? (
+            /* BEFORE SUBMISSION: REPORT INPUT FORM */
+            <div className="bg-white rounded-lg border border-slate-200 shadow-xs overflow-hidden">
+              <div className="p-4 bg-slate-900 text-white flex items-center justify-between">
+                <div className="flex items-center space-x-2">
+                  <FileText className="w-4 h-4 text-teal-400" />
+                  <h3 className="font-bold text-sm">File Worker Incident / Near-Miss Report</h3>
+                </div>
+                <span className="text-xs text-slate-400 font-mono">HSC Officer Direct Portal</span>
+              </div>
+
+              <form onSubmit={handleSingleReportSubmit} className="p-6 space-y-4">
+                {formValidationError && (
+                  <div className="p-3 bg-rose-50 border border-rose-200 text-rose-700 rounded text-xs font-semibold flex items-center space-x-2">
+                    <AlertTriangle className="w-4 h-4 shrink-0 text-rose-600" />
+                    <span>{formValidationError}</span>
+                  </div>
+                )}
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">Target Worker ID</label>
+                    <input
+                      type="text"
+                      required
+                      value={targetWorkerId}
+                      onChange={(e) => setTargetWorkerId(e.target.value)}
+                      placeholder="e.g. OIL-W-101"
+                      className="w-full px-3 py-2 text-xs font-mono border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-700"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">Operational Site ID</label>
+                    <select
+                      value={targetSiteId}
+                      onChange={(e) => setTargetSiteId(e.target.value)}
+                      className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-700"
+                    >
+                      <option value="OIL-DIGBOI-01">OIL-DIGBOI-01 (Refinery & Field)</option>
+                      <option value="OIL-DULIAJAN-01">OIL-DULIAJAN-01 (HQ Rig Site)</option>
+                      <option value="OIL-MORAN-01">OIL-MORAN-01 (Production Site)</option>
+                      <option value="OIL-JORHAT-01">OIL-JORHAT-01 (Exploration)</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Incident Narrative / Observation Description
+                  </label>
+                  <textarea
+                    rows={4}
+                    value={reportText}
+                    onChange={(e) => {
+                      setReportText(e.target.value);
+                      if (formValidationError) setFormValidationError('');
+                    }}
+                    placeholder="Describe observed unsafe acts, line pressure surge, gas leaks, or missing LOTO locks..."
+                    className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-700"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Attach Evidence Files (Images, PDFs, Voice Notes)
+                  </label>
+                  <DropzoneUpload
+                    onFilesSelected={(files) => {
+                      setEvidenceFiles(files);
+                      if (formValidationError) setFormValidationError('');
+                    }}
+                  />
+                </div>
+
+                <div className="flex items-center justify-end space-x-2 pt-3 border-t border-slate-100">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setReportText('');
+                      setEvidenceFiles([]);
+                      setFormValidationError('');
+                    }}
+                    className="px-4 py-2 bg-white border border-slate-200 text-slate-700 rounded-lg text-xs font-semibold hover:bg-slate-50"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={submittingReport}
+                    className="px-4 py-2 bg-teal-700 text-white rounded-lg text-xs font-semibold hover:bg-teal-800 shadow-xs flex items-center space-x-1.5 disabled:opacity-50"
+                  >
+                    <Send className="w-3.5 h-3.5" />
+                    <span>{submittingReport ? 'Running AI Pipeline...' : 'Submit Report & Dispatch Quiz'}</span>
+                  </button>
+                </div>
+              </form>
             </div>
-            <span className="text-xs text-slate-400 font-mono">HSC Officer Direct Portal</span>
-          </div>
-
-          <form onSubmit={handleSingleReportSubmit} className="p-6 space-y-4">
-            {formValidationError && (
-              <div className="p-3 bg-rose-50 border border-rose-200 text-rose-700 rounded text-xs font-semibold flex items-center space-x-2">
-                <AlertTriangle className="w-4 h-4 shrink-0 text-rose-600" />
-                <span>{formValidationError}</span>
-              </div>
-            )}
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">Target Worker ID</label>
-                <input
-                  type="text"
-                  required
-                  value={targetWorkerId}
-                  onChange={(e) => setTargetWorkerId(e.target.value)}
-                  placeholder="e.g. OIL-W-101"
-                  className="w-full px-3 py-2 text-xs font-mono border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-700"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">Operational Site ID</label>
-                <select
-                  value={targetSiteId}
-                  onChange={(e) => setTargetSiteId(e.target.value)}
-                  className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-700"
+          ) : (
+            /* AFTER SUCCESSFUL SUBMISSION: SUBMITTED INCIDENT AI ANALYSIS / FINAL TRUST REPORT */
+            <div className="space-y-4">
+              <div className="p-3 bg-white border border-slate-200 rounded-lg flex items-center justify-between shadow-xs">
+                <button
+                  onClick={() => setSubmittedReportResult(null)}
+                  className="px-3.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-lg text-xs font-semibold flex items-center space-x-1.5 transition-colors"
                 >
-                  <option value="OIL-DIGBOI-01">OIL-DIGBOI-01 (Refinery & Field)</option>
-                  <option value="OIL-DULIAJAN-01">OIL-DULIAJAN-01 (HQ Rig Site)</option>
-                  <option value="OIL-MORAN-01">OIL-MORAN-01 (Production Site)</option>
-                  <option value="OIL-JORHAT-01">OIL-JORHAT-01 (Exploration)</option>
-                </select>
+                  <span>&larr; File Another Report</span>
+                </button>
+                <div className="flex items-center space-x-2">
+                  <span className="text-xs font-bold text-teal-800 bg-teal-50 px-2.5 py-1 rounded border border-teal-200">
+                    AI Safety Analysis & Evidence Panel &bull; Submitted Incident Result
+                  </span>
+                </div>
               </div>
-            </div>
 
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">
-                Incident Narrative / Observation Description
-              </label>
-              <textarea
-                rows={4}
-                value={reportText}
-                onChange={(e) => {
-                  setReportText(e.target.value);
-                  if (formValidationError) setFormValidationError('');
-                }}
-                placeholder="Describe observed unsafe acts, line pressure surge, gas leaks, or missing LOTO locks..."
-                className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-700"
-              />
+              <TrustReportView report={submittedReportResult} />
             </div>
-
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">
-                Attach Evidence Files (Images, PDFs, Voice Notes)
-              </label>
-              <DropzoneUpload
-                onFilesSelected={(files) => {
-                  setEvidenceFiles(files);
-                  if (formValidationError) setFormValidationError('');
-                }}
-              />
-            </div>
-
-            <div className="flex items-center justify-end space-x-2 pt-3 border-t border-slate-100">
-              <button
-                type="button"
-                onClick={() => {
-                  setReportText('');
-                  setEvidenceFiles([]);
-                  setFormValidationError('');
-                }}
-                className="px-4 py-2 bg-white border border-slate-200 text-slate-700 rounded-lg text-xs font-semibold hover:bg-slate-50"
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                disabled={submittingReport}
-                className="px-4 py-2 bg-teal-700 text-white rounded-lg text-xs font-semibold hover:bg-teal-800 shadow-xs flex items-center space-x-1.5 disabled:opacity-50"
-              >
-                <Send className="w-3.5 h-3.5" />
-                <span>{submittingReport ? 'Running AI Pipeline...' : 'Submit Report & Dispatch Quiz'}</span>
-              </button>
-            </div>
-          </form>
+          )}
         </div>
       )}
 

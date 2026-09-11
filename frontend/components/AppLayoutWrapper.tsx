@@ -22,11 +22,11 @@ export const AppLayoutWrapper = ({ children }: { children: React.ReactNode }) =>
     return (
       <div className="min-h-screen bg-slate-50 flex flex-col">
         <TopBar />
-        <main className="flex-1 p-6 max-w-7xl w-full mx-auto">
+        <main className="flex-1 p-3 sm:p-6 max-w-7xl w-full mx-auto">
           {children}
         </main>
-        <footer className="bg-white border-t border-slate-200 py-4 text-center text-xs text-slate-500">
-          SIFRA AI Enterprise • Industrial Compliance System • Oil India Limited (OIL)
+        <footer className="bg-white border-t border-slate-200 py-3 sm:py-4 px-4 text-center text-xs text-slate-500">
+          SIFRA AI Enterprise &bull; Industrial Compliance System &bull; Oil India Limited (OIL)
         </footer>
       </div>
     );
@@ -37,11 +37,11 @@ export const AppLayoutWrapper = ({ children }: { children: React.ReactNode }) =>
       <Sidebar />
       <div className="flex-1 flex flex-col min-w-0 overflow-y-auto">
         <TopBar />
-        <main className="flex-1 p-6 max-w-7xl w-full mx-auto">
+        <main className="flex-1 p-3 sm:p-6 max-w-7xl w-full mx-auto">
           {children}
         </main>
-        <footer className="bg-white border-t border-slate-200 py-4 text-center text-xs text-slate-500">
-          SIFRA AI Enterprise • Industrial Compliance System • Oil India Limited (OIL)
+        <footer className="bg-white border-t border-slate-200 py-3 sm:py-4 px-4 text-center text-xs text-slate-500">
+          SIFRA AI Enterprise &bull; Industrial Compliance System &bull; Oil India Limited (OIL)
         </footer>
       </div>
     </div>

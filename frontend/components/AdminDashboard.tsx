@@ -323,7 +323,7 @@ Unsafe ladder placement without safety harness lanyard anchor during height insp
               : 'border-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-50'
           }`}
         >
-          Overview & Heatmap
+          Overview & Reports
         </button>
         <button
           onClick={() => setActiveTab('moderation')}

@@ -45,6 +45,7 @@ export function WorkerDashboard({ initialTab = 'reports' }: { initialTab?: strin
   const [myWarnings, setMyWarnings] = useState<any[]>([]);
   const [myAssignedTraining, setMyAssignedTraining] = useState<any[]>([]);
   const [quizHistory, setQuizHistory] = useState<any[]>([]);
+  const [leaderboardData, setLeaderboardData] = useState<any[]>([]);
   
   // Selected Report Modal
   const [selectedReport, setSelectedReport] = useState<any>(null);
@@ -60,11 +61,12 @@ export function WorkerDashboard({ initialTab = 'reports' }: { initialTab?: strin
   const fetchWorkerData = async () => {
     setLoading(true);
     try {
-      const [reportsData, warningsData, trainingData, historyData] = await Promise.all([
+      const [reportsData, warningsData, trainingData, historyData, leaderboardList] = await Promise.all([
         reportsApi.list(),
         workerApi.getWarnings(),
         workerApi.getAssignedTraining(),
-        quizApi.history()
+        quizApi.history(),
+        quizApi.leaderboard().catch(() => [])
       ]);
       
       // Filter reports specifically for this worker ID
@@ -76,6 +78,7 @@ export function WorkerDashboard({ initialTab = 'reports' }: { initialTab?: strin
       setMyWarnings(warningsData || []);
       setMyAssignedTraining(trainingData || []);
       setQuizHistory(historyData || []);
+      setLeaderboardData(leaderboardList || []);
     } catch (e) {
       console.error('Error fetching worker data:', e);
     } finally {
@@ -413,26 +416,29 @@ export function WorkerDashboard({ initialTab = 'reports' }: { initialTab?: strin
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200">
-              {[
+              {(leaderboardData && leaderboardData.length > 0 ? leaderboardData : [
                 { rank: 1, id: 'OIL-W-103', name: 'Biren Saikia', site: 'OIL-DULIAJAN-01', quizzes: 12, score: 98 },
-                { rank: 2, id: workerId, name: workerName, site: siteId, quizzes: completedQuizzesCount + 4, score: safetyScore, isMe: true },
+                { rank: 2, id: workerId, name: workerName, site: siteId, quizzes: completedQuizzesCount + 4, score: safetyScore },
                 { rank: 3, id: 'OIL-W-102', name: 'Manish Gogoi', site: 'OIL-MORAN-01', quizzes: 8, score: 91 },
                 { rank: 4, id: 'OIL-W-104', name: 'Dipankar Das', site: 'OIL-DIGBOI-01', quizzes: 6, score: 86 },
                 { rank: 5, id: 'OIL-W-105', name: 'Anil Baruah', site: 'OIL-JORHAT-01', quizzes: 5, score: 82 }
-              ].map((row) => (
-                <tr key={row.id} className={row.isMe ? 'bg-teal-50/70 font-semibold' : 'hover:bg-slate-50'}>
-                  <td className="px-4 py-3 font-mono font-bold">
-                    {row.rank === 1 ? '🥇 #1' : row.rank === 2 ? '🥈 #2' : row.rank === 3 ? '🥉 #3' : `#${row.rank}`}
-                  </td>
-                  <td className="px-4 py-3">
-                    <div className="font-bold text-slate-900">{row.name}</div>
-                    <div className="text-[10px] font-mono text-slate-500">{row.id}</div>
-                  </td>
-                  <td className="px-4 py-3 font-mono text-slate-600">{row.site}</td>
-                  <td className="px-4 py-3 font-mono font-bold text-teal-800">{row.quizzes} Modules</td>
-                  <td className="px-4 py-3 text-right font-mono font-bold text-emerald-700">{row.score}/100</td>
-                </tr>
-              ))}
+              ]).map((row: any) => {
+                const isMe = row.id === workerId || row.id === user?.id;
+                return (
+                  <tr key={row.id} className={isMe ? 'bg-teal-50/70 font-semibold' : 'hover:bg-slate-50'}>
+                    <td className="px-4 py-3 font-mono font-bold">
+                      {row.rank === 1 ? '🥇 #1' : row.rank === 2 ? '🥈 #2' : row.rank === 3 ? '🥉 #3' : `#${row.rank}`}
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="font-bold text-slate-900">{row.name}</div>
+                      <div className="text-[10px] font-mono text-slate-500">{row.id}</div>
+                    </td>
+                    <td className="px-4 py-3 font-mono text-slate-600">{row.site}</td>
+                    <td className="px-4 py-3 font-mono font-bold text-teal-800">{row.quizzes} Modules</td>
+                    <td className="px-4 py-3 text-right font-mono font-bold text-emerald-700">{row.score}/100</td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>

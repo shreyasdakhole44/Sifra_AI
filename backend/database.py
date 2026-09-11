@@ -261,6 +261,48 @@ async def get_user_training_history(worker_id: str) -> List[Dict[str, Any]]:
         res.sort(key=lambda x: x.get("completed_at", ""), reverse=True)
         return res
 
+async def get_leaderboard_rankings() -> List[Dict[str, Any]]:
+    workers = [
+        {"id": "OIL-W-103", "name": "Biren Saikia", "site": "OIL-DULIAJAN-01", "base_quizzes": 10, "base_score": 95},
+        {"id": "OIL-W-101", "name": "Ramesh Kumar", "site": "OIL-DIGBOI-01", "base_quizzes": 4, "base_score": 85},
+        {"id": "OIL-W-102", "name": "Manish Gogoi", "site": "OIL-MORAN-01", "base_quizzes": 8, "base_score": 90},
+        {"id": "OIL-W-104", "name": "Dipankar Das", "site": "OIL-DIGBOI-01", "base_quizzes": 6, "base_score": 86},
+        {"id": "OIL-W-105", "name": "Anil Baruah", "site": "OIL-JORHAT-01", "base_quizzes": 5, "base_score": 82},
+        {"id": "OIL-W-209", "name": "Suresh Sarma", "site": "OIL-DIGBOI-01", "base_quizzes": 3, "base_score": 88}
+    ]
+
+    all_history = []
+    if is_mongo_available():
+        cursor = mongodb.training_history.find({})
+        async for h in cursor:
+            all_history.append(h)
+    else:
+        all_history = list(in_memory_db.training_history.values())
+
+    rankings = []
+    for w in workers:
+        w_id = w["id"]
+        w_records = [h for h in all_history if h.get("worker_id") == w_id]
+        total_quizzes = w["base_quizzes"] + len(w_records)
+        quiz_pts = sum(r.get("percentage", 100) for r in w_records)
+        total_pts = (w["base_score"] * w["base_quizzes"]) + quiz_pts
+        avg_score = round(total_pts / max(1, total_quizzes), 1)
+        safety_score = min(100, round(avg_score))
+
+        rankings.append({
+            "id": w_id,
+            "name": w["name"],
+            "site": w["site"],
+            "quizzes": total_quizzes,
+            "score": safety_score
+        })
+
+    rankings.sort(key=lambda x: (x["score"], x["quizzes"]), reverse=True)
+    for idx, r in enumerate(rankings, 1):
+        r["rank"] = idx
+
+    return rankings
+
 async def create_alert(alert_data: Dict[str, Any]) -> Dict[str, Any]:
     alert_id = str(uuid.uuid4())
     alert_data["_id"] = alert_id

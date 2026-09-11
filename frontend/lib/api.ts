@@ -108,6 +108,10 @@ export const quizApi = {
     const res = await api.get('/quiz/history');
     return res.data;
   },
+  leaderboard: async () => {
+    const res = await api.get('/quiz/leaderboard');
+    return res.data;
+  },
 };
 
 export const adminApi = {

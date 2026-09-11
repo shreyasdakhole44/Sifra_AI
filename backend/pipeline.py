@@ -102,9 +102,10 @@ def analyze_incident_pipeline(incident_text: str, establishment_info: Dict[str, 
     prior_logit = math.log(p_prior / (1.0 - p_prior))
     combined_logit = prior_logit + total_nlp_score
 
-    # Calibrated probability in percentage [5.0%, 95.0%]
+    # Calibrated probability in percentage [0.1%, 99.9%]
     if ml_status == "success":
-        probability = round(min(95.0, max(5.0, (1.0 / (1.0 + math.exp(-combined_logit))) * 100.0)), 1)
+        p_calc = (1.0 / (1.0 + math.exp(-combined_logit))) * 100.0
+        probability = round(max(0.1, min(99.9, p_calc)), 1)
         prediction = "YES" if probability >= 50.0 else "NO"
         risk_level = "HIGH" if probability >= 50.0 else ("MEDIUM" if probability >= 30.0 else "LOW")
     else:
@@ -112,7 +113,7 @@ def analyze_incident_pipeline(incident_text: str, establishment_info: Dict[str, 
         prediction = "NO"
         risk_level = "LOW"
 
-    print(f"[7] SIF PROBABILITY: {probability:.1f}% (Prior XGBoost: {xgb_prob:.1f}%, Logit Shift: {total_nlp_score:+.2f})")
+    print(f"[7] FINAL PROBABILITY: {probability:.1f}% (Prior XGBoost: {xgb_prob:.1f}%, Logit Shift: {total_nlp_score:+.2f})")
     print(f"[8] RISK BAND: {risk_level} (Fatality Flag: {prediction})")
 
     # -------------------------------------------------------------
@@ -120,7 +121,8 @@ def analyze_incident_pipeline(incident_text: str, establishment_info: Dict[str, 
     # -------------------------------------------------------------
     # First attempt to extract explicit sections from document (e.g. PDF text)
     ua_extracted = extract_section_bullets(raw_text, ["UNSAFE ACTS", "UNSAFE ACTS (UA)", "UNSAFE ACT"])
-    uc_extracted = extract_section_bullets(raw_text, ["UNSAFE CONDITIONS", "UNSAFE CONDITIONS (UC)", "UNSAFE CONDITION", "IMMEDIATE HAZARD"])
+    uc_extracted = extract_section_bullets(raw_text, ["UNSAFE CONDITIONS", "UNSAFE CONDITIONS (UC)", "UNSAFE CONDITION"])
+    hazard_extracted = extract_section_bullets(raw_text, ["IMMEDIATE HAZARD", "IMMEDIATE HAZARD / POTENTIAL CONSEQUENCE", "POTENTIAL CONSEQUENCE", "RELEVANT HAZARDS"])
     iogp_extracted = extract_section_bullets(raw_text, ["POTENTIAL IOGP LIFE-SAVING RULES", "IOGP LIFE-SAVING RULES", "IOGP RULES"])
     barriers_extracted = extract_section_bullets(raw_text, ["CRITICAL SAFETY BARRIERS INVOLVED", "CRITICAL BARRIERS", "RECOMMENDED ACTIONS"])
 
@@ -128,6 +130,7 @@ def analyze_incident_pipeline(incident_text: str, establishment_info: Dict[str, 
     unsafe_acts = ua_extracted
     unsafe_conditions = uc_extracted
     critical_barriers = barriers_extracted
+    relevant_hazards = hazard_extracted if hazard_extracted else uc_extracted
     iogp_rules = []
 
     if not unsafe_acts:
@@ -266,7 +269,7 @@ def generate_quiz_from_rag(incident_text: str, rag_context: str) -> List[Dict[st
     if client:
         prompt = f"""
 You are an expert safety training instructor for Oil India Limited (OIL).
-Based on the following incident description and retrieved safety knowledge base context, generate 3 high-quality multiple choice questions (MCQs) for worker safety training.
+Based on the following incident description and retrieved safety knowledge base context, generate EXACTLY 10 high-quality multiple choice questions (MCQs) for worker safety training.
 
 INCIDENT:
 {incident_text}
@@ -274,7 +277,7 @@ INCIDENT:
 RETRIEVED SAFETY CONTEXT:
 {rag_context}
 
-Output ONLY valid JSON matching this structure:
+Output ONLY valid JSON matching this array structure of 10 objects:
 [
   {{
     "id": 1,
@@ -282,7 +285,8 @@ Output ONLY valid JSON matching this structure:
     "options": ["Option A", "Option B", "Option C", "Option D"],
     "correct_index": 0,
     "explanation": "Brief explanation of why this option is correct."
-  }}
+  }},
+  ...
 ]
 """
         model_name = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
@@ -290,11 +294,11 @@ Output ONLY valid JSON matching this structure:
             response = client.chat.completions.create(
                 model=model_name,
                 messages=[
-                    {"role": "system", "content": "You are a JSON quiz generator for industrial safety compliance."},
+                    {"role": "system", "content": "You are a JSON quiz generator for industrial safety compliance. Always generate exactly 10 questions."},
                     {"role": "user", "content": prompt}
                 ],
                 temperature=0.3,
-                max_tokens=1000
+                max_tokens=3000
             )
             content = response.choices[0].message.content.strip()
             if content.startswith("```json"):
@@ -303,81 +307,92 @@ Output ONLY valid JSON matching this structure:
                 content = content[3:]
             if content.endswith("```"):
                 content = content[:-3]
-            return json.loads(content.strip())
+            parsed = json.loads(content.strip())
+            if isinstance(parsed, list) and len(parsed) >= 1:
+                return parsed[:10]
         except Exception as e:
             print(f"Notice: Groq quiz generation fallback: {e}")
 
-    # Fallback dynamic quiz generator based on incident text
+    # Fallback dynamic quiz generator based on incident text (10 complete questions)
     text_l = incident_text.lower() if incident_text else ""
-    if "loto" in text_l or "valve" in text_l or "manifold" in text_l:
-        return [
-            {
-                "id": 1,
-                "question": "What is the mandatory procedure before operating wellhead manifold valves?",
-                "options": [
-                    "Verify mechanical Lockout/Tagout (LOTO) isolation and zero residual pressure",
-                    "Bypass isolation tags and open valve immediately",
-                    "Operate valve without personal protective equipment (PPE)",
-                    "Wait 2 hours without checking pressure gauges"
-                ],
-                "correct_index": 0,
-                "explanation": "LOTO verification and zero-energy pressure bleeding are mandatory under IOGP Energy Isolation rules."
-            },
-            {
-                "id": 2,
-                "question": "What does a missing LOTO tag on an isolation point indicate?",
-                "options": [
-                    "Unconfirmed isolation state — do not operate until isolation is re-verified and tagged",
-                    "The system is safe to operate without checking",
-                    "Isolation is optional for routine maintenance",
-                    "Pressure is automatically zero"
-                ],
-                "correct_index": 0,
-                "explanation": "No work may proceed on isolation points lacking visible LOTO verification tags."
-            }
-        ]
-    elif "height" in text_l or "rack" in text_l or "harness" in text_l:
-        return [
-            {
-                "id": 1,
-                "question": "What is required when working on elevated pipe racks above 1.8m height?",
-                "options": [
-                    "Wear a safety harness and clip lanyard to a certified anchor point (100% tie-off)",
-                    "Work without a harness if the task takes less than 10 minutes",
-                    "Anchor lanyard to non-certified loose piping",
-                    "Disconnect lanyard while walking along pipe racks"
-                ],
-                "correct_index": 0,
-                "explanation": "100% tie-off to certified anchor points is mandatory under IOGP Working at Height rules."
-            }
-        ]
-    elif "hot work" in text_l or "grinding" in text_l or "gas test" in text_l:
-        return [
-            {
-                "id": 1,
-                "question": "What must be completed prior to executing grinding or hot spark work near hydrocarbon tanks?",
-                "options": [
-                    "Obtain an authorized Hot Work Permit and record continuous LEL gas test readings",
-                    "Start grinding immediately if no supervisor is watching",
-                    "Cover gas sensors to prevent alarm triggers",
-                    "Ignore hydrocarbon gas odor"
-                ],
-                "correct_index": 0,
-                "explanation": "Hot Work permits and gas clearance testing prevent explosive hydrocarbon gas ignition."
-            }
-        ]
-    else:
-        return [
-            {
-                "id": 1,
-                "question": "What is the first step when observing an unsafe act or condition at an Oil India worksite?",
-                "options": [
-                    "Stop work immediately and notify the Shift HSE Officer",
-                    "Ignore the observation and continue working",
-                    "Wait until end of shift before reporting",
-                    "Bypass the safety barrier"
-                ],
-                "correct_index": 0,
-                "explanation": "Empowerment to Stop Unsafe Work is a core OIL safety rule."
-            }
-        ]
+    
+    q_loto = [
+        {
+            "id": 1,
+            "question": "What is the mandatory procedure before operating wellhead manifold valves?",
+            "options": ["Verify mechanical Lockout/Tagout (LOTO) isolation & zero residual pressure", "Bypass isolation tags and open valve immediately", "Operate valve without PPE", "Wait 2 hours without checking pressure gauges"],
+            "correct_index": 0,
+            "explanation": "LOTO verification and zero-energy pressure bleeding are mandatory under IOGP Energy Isolation rules."
+        },
+        {
+            "id": 2,
+            "question": "What does a missing LOTO tag on a pressurized isolation point indicate?",
+            "options": ["Unconfirmed isolation state — do not operate until isolation is re-verified and tagged", "The system is safe to operate without checking", "Isolation is optional for routine maintenance", "Pressure is automatically zero"],
+            "correct_index": 0,
+            "explanation": "No work may proceed on isolation points lacking visible LOTO verification tags."
+        },
+        {
+            "id": 3,
+            "question": "Which action must be taken if a pressure gauge shows unexpected residual line pressure?",
+            "options": ["Halt work immediately, bleed off pressure, and notify Shift HSE Supervisor", "Proceed with line disconnection quickly", "Ignore gauge reading if valve is closed", "Hit gauge to reset indicator"],
+            "correct_index": 0,
+            "explanation": "Stored pressure release requires immediate work stoppage and controlled venting."
+        }
+    ]
+    
+    q_height = [
+        {
+            "id": 4,
+            "question": "What is required when working on elevated pipe racks above 1.8m height?",
+            "options": ["Wear a full-body harness and clip lanyard to a certified anchor point (100% tie-off)", "Work without a harness if task takes less than 10 minutes", "Anchor lanyard to non-certified loose piping", "Disconnect lanyard while walking along pipe racks"],
+            "correct_index": 0,
+            "explanation": "100% tie-off to certified anchor points is mandatory under IOGP Working at Height rules."
+        },
+        {
+            "id": 5,
+            "question": "Before using a safety harness at height, what pre-use inspection is mandatory?",
+            "options": ["Inspect webbing for cuts/fraying, check D-ring latch integrity, and verify certification tag", "Only check if harness fits comfortably", "No inspection required if used yesterday", "Rely on supervisor's verbal confirmation"],
+            "correct_index": 0,
+            "explanation": "Pre-use visual and mechanical inspection of fall protection gear prevents equipment failure."
+        }
+    ]
+
+    q_general = [
+        {
+            "id": 6,
+            "question": "What must be completed prior to executing grinding or hot spark work near hydrocarbon storage tanks?",
+            "options": ["Obtain an authorized Hot Work Permit and record continuous LEL gas test readings", "Start grinding immediately if no supervisor is watching", "Cover gas sensors to prevent alarm triggers", "Ignore hydrocarbon gas odor"],
+            "correct_index": 0,
+            "explanation": "Hot Work permits and continuous atmospheric gas clearance prevent explosive hydrocarbon ignition."
+        },
+        {
+            "id": 7,
+            "question": "What atmospheric gas clearance reading is mandatory before entering a confined vessel or pit?",
+            "options": ["Oxygen level between 19.5%–23.5% and 0% LEL flammable gas", "Oxygen level below 15% with high LEL", "Gas testing is not required if pit is shallow", "Any oxygen level above 10%"],
+            "correct_index": 0,
+            "explanation": "Safe oxygen range (19.5%-23.5%) and zero LEL are mandatory Confined Space Entry requirements."
+        },
+        {
+            "id": 8,
+            "question": "What exclusion barrier rule applies when positioning heavy machinery or crane loads?",
+            "options": ["Establish physical barricades around the crane swing radius and tagline zone", "Stand directly under suspended loads to guide placement", "Allow personnel to walk through tagline zone during lift", "Remove barricades before lift begins"],
+            "correct_index": 0,
+            "explanation": "Line-of-fire exclusion zone barricades prevent dropped object fatalities."
+        },
+        {
+            "id": 9,
+            "question": "What is the official Oil India policy regarding Stop Work Authority (SWA)?",
+            "options": ["Every worker has the unconditional right & duty to STOP work if unsafe conditions arise", "Only Shift HSE Officers can stop unsafe work", "Stopping work requires written clearance from senior management", "Stop work only after an injury occurs"],
+            "correct_index": 0,
+            "explanation": "OIL empowers every worker with immediate Stop Work Authority for active hazards."
+        },
+        {
+            "id": 10,
+            "question": "How quickly must a near-miss observation or unsafe condition be reported?",
+            "options": ["Immediately to the Shift HSE Officer before shift completion", "Within 14 days", "Only if an injury or asset damage occurred", "Never report minor near-misses"],
+            "correct_index": 0,
+            "explanation": "Immediate near-miss reporting enables proactive preventive action before fatalities occur."
+        }
+    ]
+
+    return q_loto + q_height + q_general

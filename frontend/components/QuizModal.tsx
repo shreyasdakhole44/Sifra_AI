@@ -51,8 +51,6 @@ export const QuizModal: React.FC<QuizModalProps> = ({
     }
   }, [reportId, initialQuestions]);
 
-  const currentQ = questions[currentIndex];
-
   const handleSelect = (optionIdx: number) => {
     if (submitted) return;
     setSelectedAnswers({ ...selectedAnswers, [currentIndex]: optionIdx });
@@ -93,6 +91,38 @@ export const QuizModal: React.FC<QuizModalProps> = ({
   };
 
   const percentage = Math.round((score / Math.max(1, questions.length)) * 100);
+
+  if (loadingQuestions) {
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-xs p-4">
+        <div className="bg-white rounded-xl max-w-md w-full p-8 text-center space-y-4 shadow-sm border border-slate-200 relative">
+          <button onClick={onClose} className="absolute top-4 right-4 text-slate-400 hover:text-slate-700 p-1">
+            <X className="w-4 h-4" />
+          </button>
+          <div className="w-8 h-8 border-3 border-teal-700 border-t-transparent rounded-full animate-spin mx-auto" />
+          <div>
+            <h3 className="font-semibold text-slate-900 text-sm">Generating 10-Question LLM Safety Quiz...</h3>
+            <p className="text-[11px] text-slate-500 mt-1">Synthesizing incident context & IOGP safety standards</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (!questions || questions.length === 0) {
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-xs p-4">
+        <div className="bg-white rounded-xl max-w-md w-full p-6 text-center space-y-4 shadow-sm border border-slate-200 relative">
+          <button onClick={onClose} className="absolute top-4 right-4 text-slate-400 hover:text-slate-700 p-1">
+            <X className="w-4 h-4" />
+          </button>
+          <p className="text-xs text-slate-600 font-medium">No quiz questions available for this report.</p>
+        </div>
+      </div>
+    );
+  }
+
+  const currentQ = questions[currentIndex] || questions[0];
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-xs p-4">

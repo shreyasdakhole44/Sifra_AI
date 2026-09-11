@@ -28,11 +28,12 @@ import {
   Upload,
   Eye,
   Sliders,
-  Bell
+  Bell,
+  LogOut
 } from 'lucide-react';
 
 export function AdminDashboard({ initialTab = 'overview' }: { initialTab?: string }) {
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
   
   const [stats, setStats] = useState<any>(null);
   const [workers, setWorkers] = useState<any[]>([]);
@@ -263,6 +264,10 @@ Unsafe ladder placement without safety harness lanyard anchor during height insp
             onClick={() => {
               setActiveTab('overview');
               setSubmittedReportResult(null);
+              setReportText('');
+              setEvidenceFiles([]);
+              setTargetWorkerId('OIL-W-101');
+              setFormValidationError('');
               setTimeout(() => {
                 document.getElementById('incident-report-form')?.scrollIntoView({ behavior: 'smooth' });
               }, 50);
@@ -271,6 +276,15 @@ Unsafe ladder placement without safety harness lanyard anchor during height insp
           >
             <Plus className="w-4 h-4" />
             <span>File Worker Incident Report</span>
+          </button>
+
+          <button
+            onClick={logout}
+            className="px-3.5 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-lg text-xs font-semibold shadow-xs transition-colors flex items-center space-x-1.5"
+            title="Sign out"
+          >
+            <LogOut className="w-3.5 h-3.5" />
+            <span>Logout</span>
           </button>
         </div>
       </div>
@@ -500,7 +514,13 @@ Unsafe ladder placement without safety harness lanyard anchor during height insp
             <div className="space-y-4">
               <div className="p-3 bg-white border border-slate-200 rounded-lg flex items-center justify-between shadow-xs">
                 <button
-                  onClick={() => setSubmittedReportResult(null)}
+                  onClick={() => {
+                    setSubmittedReportResult(null);
+                    setReportText('');
+                    setEvidenceFiles([]);
+                    setTargetWorkerId('OIL-W-101');
+                    setFormValidationError('');
+                  }}
                   className="px-3.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-lg text-xs font-semibold flex items-center space-x-1.5 transition-colors"
                 >
                   <span>&larr; File Another Report</span>

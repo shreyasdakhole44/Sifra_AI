@@ -1,4 +1,5 @@
 import os
+import re
 import shutil
 import uuid
 from fastapi import APIRouter, HTTPException, status, Depends, Response, UploadFile, File
@@ -29,6 +30,14 @@ def extract_pdf_text(file_bytes: bytes) -> str:
     except Exception as e:
         print(f"Warning extracting PDF text: {e}")
         return ""
+
+def extract_worker_id_from_text(text: str) -> Optional[str]:
+    if not text:
+        return None
+    m = re.search(r'\b(OIL-W-\d+)\b', text, re.IGNORECASE)
+    if m:
+        return m.group(1).upper()
+    return None
 
 class EstablishmentInfo(BaseModel):
     employees: float = 100.0
@@ -71,7 +80,14 @@ async def submit_incident_report(
         )
 
     raw_text = req.incident_text.strip() if has_text else "No written description provided — see attached evidence for assessment."
-    target_worker_id = (req.worker_id or current_user.get("worker_id", current_user.get("id", "OIL-W-101"))).strip()
+    
+    # Priority Worker ID binding: (1) Extracted from incident text/header, (2) req.worker_id, (3) current user worker_id
+    text_worker_id = extract_worker_id_from_text(raw_text)
+    if text_worker_id:
+        target_worker_id = text_worker_id
+    else:
+        target_worker_id = (req.worker_id or current_user.get("worker_id", current_user.get("id", "OIL-W-101"))).strip()
+
     site_id = req.site_id or current_user.get("site_id", "OIL-DULIAJAN-01")
 
     # If the officer pasted or uploaded a batch document containing multiple worker entries:
@@ -252,8 +268,13 @@ async def upload_report_attachments(
                 detail=f"File '{file.filename}' exceeds maximum allowed size of 10MB."
             )
 
-        # If PDF uploaded, extract narrative text from PDF
-        if file.content_type == "application/pdf" or file.filename.lower().endswith(".pdf"):
+        # If PDF uploaded, extract narrative text from PDF (check magic header, extension, or content-type)
+        is_pdf = (
+            content.startswith(b"%PDF") or
+            file.filename.lower().endswith(".pdf") or
+            (file.content_type and "pdf" in file.content_type.lower())
+        )
+        if is_pdf:
             pdf_txt = extract_pdf_text(content)
             if pdf_txt and len(pdf_txt.strip()) > 20:
                 extracted_pdf_narrative = pdf_txt.strip()
@@ -280,10 +301,37 @@ async def upload_report_attachments(
     # Re-evaluate SIF analysis if PDF narrative was extracted
     if extracted_pdf_narrative:
         info_dict = report.get("establishment_info", {})
-        analysis = analyze_incident_pipeline(extracted_pdf_narrative, info_dict)
-        
+        existing_w_id = report.get("worker_id", "OIL-W-101")
+
+        parsed_batch = parse_batch_worker_entries(extracted_pdf_narrative)
+        matched_entry = None
+        if len(parsed_batch) > 1:
+            for b_entry in parsed_batch:
+                if b_entry["worker_id"].upper() == existing_w_id.upper():
+                    matched_entry = b_entry
+                    break
+            if not matched_entry:
+                matched_entry = parsed_batch[0]
+        elif len(parsed_batch) == 1:
+            matched_entry = parsed_batch[0]
+
+        if matched_entry:
+            final_pdf_text = matched_entry["incident_text"]
+            target_w_id = matched_entry["worker_id"] if (matched_entry.get("worker_id") and matched_entry["worker_id"] != "OIL-W-101" or existing_w_id == "OIL-W-101") else existing_w_id
+            site_id = matched_entry.get("site_id", report.get("site_id", "OIL-DULIAJAN-01"))
+        else:
+            final_pdf_text = extracted_pdf_narrative
+            pdf_w_id = extract_worker_id_from_text(extracted_pdf_narrative)
+            target_w_id = existing_w_id if existing_w_id != "OIL-W-101" else (pdf_w_id or "OIL-W-101")
+            site_id = report.get("site_id", "OIL-DULIAJAN-01")
+
+        analysis = analyze_incident_pipeline(final_pdf_text, info_dict)
+
         update_fields = {
-            "incident_text": extracted_pdf_narrative,
+            "worker_id": target_w_id,
+            "worker_name": f"Worker ({target_w_id})",
+            "incident_text": final_pdf_text,
+            "site_id": site_id,
             "ml_status": analysis.get("ml_status", "success"),
             "rag_status": analysis.get("rag_status", "success"),
             "ml_prediction": analysis["ml_prediction"],
@@ -302,7 +350,7 @@ async def upload_report_attachments(
             "flagged": analysis["risk_level"] == "HIGH"
         }
         await update_report_fields(report_id, update_fields)
-        print(f"[10] FINAL API RESPONSE (POST-ATTACHMENT): report_id={report_id}, risk_level={analysis['risk_level']}, probability={analysis['ml_probability']}%\n")
+        print(f"[10] FINAL API RESPONSE (POST-ATTACHMENT): report_id={report_id}, worker_id={target_w_id}, risk_level={analysis['risk_level']}, probability={analysis['ml_probability']}%\n")
 
     updated_report = await get_report_by_id(report_id)
     return updated_report or {}

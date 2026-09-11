@@ -2,7 +2,7 @@ from fastapi import APIRouter, HTTPException, status, Depends
 from pydantic import BaseModel
 from typing import Dict, Any, List
 from backend.auth import get_current_user
-from backend.database import get_report_by_id, create_training_record, get_user_training_history
+from backend.database import get_report_by_id, create_training_record, get_user_training_history, get_leaderboard_rankings
 from backend.pipeline import generate_quiz_from_rag
 
 router = APIRouter(prefix="/quiz", tags=["Safety Quiz & Training"])
@@ -38,6 +38,7 @@ async def generate_quiz_for_report(
 
     return {
         "report_id": report_id,
+        "worker_id": report.get("worker_id", "OIL-W-101"),
         "quiz_title": f"Safety Assessment: {incident_text[:40]}...",
         "questions": questions
     }
@@ -47,9 +48,14 @@ async def submit_quiz_score(
     req: QuizSubmitRequest,
     current_user: dict = Depends(get_current_user)
 ):
+    target_worker_id = current_user.get("worker_id", current_user.get("id", "OIL-W-101"))
+    report = await get_report_by_id(req.report_id)
+    if report and report.get("worker_id"):
+        target_worker_id = report.get("worker_id")
+
     record = {
-        "worker_id": current_user["id"],
-        "worker_name": current_user.get("name", "Worker"),
+        "worker_id": target_worker_id,
+        "worker_name": f"Worker ({target_worker_id})",
         "report_id": req.report_id,
         "quiz_title": req.quiz_title,
         "score": req.score,
@@ -72,3 +78,10 @@ async def get_training_history_endpoint(
         
     history = await get_user_training_history(target_id)
     return history
+
+@router.get("/leaderboard", response_model=List[Dict[str, Any]])
+async def get_quiz_leaderboard_endpoint(
+    current_user: dict = Depends(get_current_user)
+):
+    rankings = await get_leaderboard_rankings()
+    return rankings

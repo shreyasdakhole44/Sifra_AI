@@ -240,7 +240,7 @@ Unsafe ladder placement without safety harness lanyard anchor during height insp
       {/* Page Header */}
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-4 border-b border-slate-200">
         <div className="space-y-1">
-          <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight text-slate-900">HSC Officer Control Room</h1>
+          <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight text-slate-900">HSE Officer Control Room</h1>
           <p className="text-sm text-slate-600 leading-relaxed max-w-3xl">
             Monitor worker safety reports, review SIF risk assessments, validate safety barriers, and manage field safety actions.
           </p>

@@ -45,6 +45,7 @@ export function WorkerDashboard({ initialTab = 'reports' }: { initialTab?: strin
   const [myAssignedTraining, setMyAssignedTraining] = useState<any[]>([]);
   const [quizHistory, setQuizHistory] = useState<any[]>([]);
   const [leaderboardData, setLeaderboardData] = useState<any[]>([]);
+  const [arResults, setArResults] = useState<any[]>([]);
   
   // Selected Report Modal
   const [selectedReport, setSelectedReport] = useState<any>(null);
@@ -60,12 +61,13 @@ export function WorkerDashboard({ initialTab = 'reports' }: { initialTab?: strin
   const fetchWorkerData = async () => {
     setLoading(true);
     try {
-      const [reportsData, warningsData, trainingData, historyData, leaderboardList] = await Promise.all([
+      const [reportsData, warningsData, trainingData, historyData, leaderboardList, arData] = await Promise.all([
         reportsApi.list(),
         workerApi.getWarnings(),
         workerApi.getAssignedTraining(),
         quizApi.history(),
-        quizApi.leaderboard().catch(() => [])
+        quizApi.leaderboard().catch(() => []),
+        workerApi.arTraining.getResults().catch(() => [])
       ]);
       
       // Filter reports specifically for this worker ID
@@ -78,6 +80,7 @@ export function WorkerDashboard({ initialTab = 'reports' }: { initialTab?: strin
       setMyAssignedTraining(trainingData || []);
       setQuizHistory(historyData || []);
       setLeaderboardData(leaderboardList || []);
+      setArResults(arData || []);
     } catch (e) {
       console.error('Error fetching worker data:', e);
     } finally {
@@ -104,6 +107,7 @@ export function WorkerDashboard({ initialTab = 'reports' }: { initialTab?: strin
   const medRiskCount = myReports.filter((r) => (r.risk_level || '').toUpperCase() === 'MEDIUM').length;
   const lowRiskCount = myReports.filter((r) => (r.risk_level || '').toUpperCase() === 'LOW').length;
   const completedQuizzesCount = quizHistory.length;
+  const arPoints = arResults.reduce((acc, curr) => acc + (curr.points_earned || 0), 0);
   const safetyScore = Math.max(70, 100 - highRiskCount * 8 - medRiskCount * 3 + completedQuizzesCount * 2);
 
   return (
@@ -146,8 +150,12 @@ export function WorkerDashboard({ initialTab = 'reports' }: { initialTab?: strin
               <span className="block text-xs uppercase font-bold text-slate-400 tracking-wider">Safety Index Score</span>
               <span className="text-xl font-bold text-emerald-400 font-mono">{safetyScore} / 100</span>
             </div>
+            <div className="pr-4 border-r border-slate-700 pl-1">
+              <span className="block text-xs uppercase font-bold text-slate-400 tracking-wider">AR/VR Points</span>
+              <span className="text-xl font-bold text-indigo-400 font-mono">{arPoints} XP</span>
+            </div>
             <div className="pl-1">
-              <span className="block text-xs uppercase font-bold text-slate-400 tracking-wider">Quizzes Completed</span>
+              <span className="block text-xs uppercase font-bold text-slate-400 tracking-wider">Quizzes</span>
               <span className="text-xl font-bold text-teal-400 font-mono">{completedQuizzesCount} Passed</span>
             </div>
           </div>

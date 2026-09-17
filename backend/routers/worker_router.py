@@ -3,7 +3,8 @@ from pydantic import BaseModel
 from typing import Dict, Any, List, Optional
 from backend.auth import get_current_user
 from backend.database import (
-    get_warnings, get_tasks, update_task_status, get_training_assignments
+    get_warnings, get_tasks, update_task_status, get_training_assignments,
+    create_ar_training_result, get_ar_training_results
 )
 
 router = APIRouter(prefix="/worker", tags=["Worker Dashboard"])
@@ -49,3 +50,33 @@ async def get_my_assigned_training(
     """Fetch training modules assigned by HSC officer to current worker."""
     assignments = await get_training_assignments(worker_id=current_user["id"])
     return assignments
+
+class ARTrainingSubmitRequest(BaseModel):
+    rule_id: int
+    points_earned: int
+    attempt_number: int
+    step_results: Optional[List[Dict[str, Any]]] = None
+
+@router.post("/ar-training", response_model=Dict[str, Any])
+async def submit_ar_training(
+    req: ARTrainingSubmitRequest,
+    current_user: dict = Depends(get_current_user)
+):
+    """Submit a completed AR/VR module attempt."""
+    record = {
+        "worker_id": current_user["id"],
+        "rule_id": req.rule_id,
+        "points_earned": req.points_earned,
+        "attempt_number": req.attempt_number,
+        "step_results": req.step_results or []
+    }
+    result = await create_ar_training_result(record)
+    return result
+
+@router.get("/ar-training", response_model=List[Dict[str, Any]])
+async def get_my_ar_training(
+    current_user: dict = Depends(get_current_user)
+):
+    """Fetch AR/VR module completions for the worker."""
+    results = await get_ar_training_results(worker_id=current_user["id"])
+    return results

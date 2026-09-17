@@ -184,4 +184,19 @@ export const workerApi = {
     const res = await api.get('/worker/training');
     return res.data;
   },
+  arTraining: {
+    submitResult: async (ruleId: number, pointsEarned: number, attemptNumber: number, stepResults: any[] = []) => {
+      const res = await api.post('/worker/ar-training', {
+        rule_id: ruleId,
+        points_earned: pointsEarned,
+        attempt_number: attemptNumber,
+        step_results: stepResults
+      });
+      return res.data;
+    },
+    getResults: async () => {
+      const res = await api.get('/worker/ar-training');
+      return res.data;
+    }
+  }
 };

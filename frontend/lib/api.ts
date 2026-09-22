@@ -1,6 +1,15 @@
 import axios from 'axios';
 
-const API_BASE = '/api';
+const getApiBase = () => {
+  const envUrl = process.env.NEXT_PUBLIC_API_BASE_URL;
+  if (envUrl) {
+    const cleanUrl = envUrl.replace(/\/+$/, '');
+    return cleanUrl.endsWith('/api') ? cleanUrl : `${cleanUrl}/api`;
+  }
+  return 'https://sifra-ai-backend.onrender.com/api';
+};
+
+const API_BASE = getApiBase();
 
 export const api = axios.create({
   baseURL: API_BASE,

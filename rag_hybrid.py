@@ -1,8 +1,15 @@
 import os
 import pickle
 import re
+import gc
 import faiss
 import numpy as np
+
+# Limit PyTorch / OpenMP CPU threads for low RAM footprint
+os.environ["OMP_NUM_THREADS"] = "1"
+os.environ["MKL_NUM_THREADS"] = "1"
+os.environ["OPENBLAS_NUM_THREADS"] = "1"
+
 from sentence_transformers import SentenceTransformer
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -25,15 +32,20 @@ def load_hybrid_rag_resources():
     if embedding_model is None:
         print("Loading Dense Embedding Model (all-MiniLM-L6-v2)...")
         embedding_model = SentenceTransformer("all-MiniLM-L6-v2")
+        gc.collect()
         
-    if cross_encoder_model is None:
+    # CrossEncoder model is ~250MB. Skip in memory-constrained environments (e.g. Render 512MB free tier)
+    if cross_encoder_model is None and not os.getenv("RENDER") and not os.getenv("LOW_MEMORY"):
         try:
             from sentence_transformers import CrossEncoder
-            print("Loading CrossEncoder Reranker (cross-encoder/ms-marco-MiniLM-L-6-v2)...")
+            print("Loading CrossEncoder Reranker...")
             cross_encoder_model = CrossEncoder("cross-encoder/ms-marco-MiniLM-L-6-v2")
+            gc.collect()
         except Exception as e:
             print(f"Notice: CrossEncoder loading deferred/bypassed: {e}")
             cross_encoder_model = None
+    else:
+        cross_encoder_model = None
 
     if index_v2 is None and os.path.exists(FAISS_V2_PATH):
         print("Loading FAISS V2 Index...")

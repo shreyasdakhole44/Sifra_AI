@@ -1,5 +1,5 @@
 from fastapi import APIRouter, HTTPException, status, Depends
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel
 from typing import Optional
 from backend.auth import get_password_hash, verify_password, create_access_token, get_current_user
 from backend.database import find_user_by_email, create_user
@@ -8,13 +8,13 @@ router = APIRouter(prefix="/auth", tags=["Authentication"])
 
 class SignupRequest(BaseModel):
     name: str
-    email: EmailStr
+    email: str
     password: str
     role: str = "Worker" # Worker, HSE Officer, Admin
     site_id: Optional[str] = "OIL-DULIAJAN-01"
 
 class LoginRequest(BaseModel):
-    email: EmailStr
+    email: str
     password: str
 
 class AuthResponse(BaseModel):

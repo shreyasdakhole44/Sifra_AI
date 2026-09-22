@@ -19,7 +19,8 @@ import {
   BookOpenCheck,
   Trophy, 
   ChevronRight,
-  X
+  X,
+  View
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -54,6 +55,7 @@ export const Sidebar = ({ isMobileOpen = false, onCloseMobile }: SidebarProps) =
     { label: 'Safety History', href: '/worker/history', icon: ClipboardList },
     { label: 'Alerts', href: '/worker/alerts', icon: Bell },
     { label: 'Assigned Quizzes', href: '/worker/quizzes', icon: BookOpenCheck },
+    { label: 'AR/VR Training', href: '/worker/ar-training', icon: View },
     { label: 'Leaderboard', href: '/worker/leaderboard', icon: Trophy },
   ];
 

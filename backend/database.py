@@ -17,6 +17,7 @@ class InMemoryDatabase:
         self.warnings: Dict[str, Dict[str, Any]] = {}
         self.tasks: Dict[str, Dict[str, Any]] = {}
         self.training_assignments: Dict[str, Dict[str, Any]] = {}
+        self.ar_training_results: Dict[str, Dict[str, Any]] = {}
         self.worker_locations: List[Dict[str, Any]] = []
         
         # Seed initial default admin/HSC officer and worker users for testing
@@ -260,6 +261,32 @@ async def get_user_training_history(worker_id: str) -> List[Dict[str, Any]]:
         res = [h for h in in_memory_db.training_history.values() if h.get("worker_id") == worker_id]
         res.sort(key=lambda x: x.get("completed_at", ""), reverse=True)
         return res
+
+async def create_ar_training_result(record: Dict[str, Any]) -> Dict[str, Any]:
+    rec_id = str(uuid.uuid4())
+    record["_id"] = rec_id
+    record["id"] = rec_id
+    record["completed_at"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    
+    if is_mongo_available():
+        await mongodb.ar_training_results.insert_one(record)
+    else:
+        in_memory_db.ar_training_results[rec_id] = record
+    return record
+
+async def get_ar_training_results(worker_id: str) -> List[Dict[str, Any]]:
+    if is_mongo_available():
+        cursor = mongodb.ar_training_results.find({"worker_id": worker_id}).sort("completed_at", -1)
+        results = []
+        async for r in cursor:
+            r["id"] = str(r["_id"])
+            results.append(r)
+        return results
+    else:
+        res = [r for r in in_memory_db.ar_training_results.values() if r.get("worker_id") == worker_id]
+        res.sort(key=lambda x: x.get("completed_at", ""), reverse=True)
+        return res
+
 
 async def get_leaderboard_rankings() -> List[Dict[str, Any]]:
     workers = [
